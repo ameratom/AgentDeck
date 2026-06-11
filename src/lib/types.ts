@@ -198,32 +198,6 @@ export interface HandoffRequest {
   approvals: string[];
 }
 
-export interface RouterRuleMatch {
-  keywords?: string[];
-  taskSizeGt?: number;
-  sourceAgent?: string;
-}
-
-export interface RouterRuleRoute {
-  providerId: string;
-  modelId: string;
-}
-
-export interface RouterRule {
-  id: string;
-  priority: number;
-  matchRules: RouterRuleMatch;
-  route: RouterRuleRoute;
-  warnLargeTask: boolean;
-}
-
-export interface RouterEvaluation {
-  rule: RouterRule | null;
-  providerId: string | null;
-  modelId: string | null;
-  warning: string | null;
-}
-
 export interface HandoffRun {
   id: string;
   threadId: string;

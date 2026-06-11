@@ -336,7 +336,7 @@ fn validate_handoff_request(request: &HandoffRequest) -> Result<(), String> {
     validate_identifier("target model ID", &request.target_model_id)?;
     validate_text("title", &request.title)?;
     validate_text("task", &request.task)?;
-    validate_text("context", &request.context)?;
+    validate_optional_text("context", &request.context)?;
     Ok(())
 }
 
@@ -353,6 +353,16 @@ fn validate_text(label: &str, value: &str) -> Result<(), String> {
     if length == 0 || length > MAX_TEXT_CHARS {
         return Err(format!(
             "{label} must contain between 1 and {MAX_TEXT_CHARS} characters"
+        ));
+    }
+    Ok(())
+}
+
+fn validate_optional_text(label: &str, value: &str) -> Result<(), String> {
+    let length = value.chars().count();
+    if length > MAX_TEXT_CHARS {
+        return Err(format!(
+            "{label} must contain at most {MAX_TEXT_CHARS} characters"
         ));
     }
     Ok(())
@@ -431,6 +441,13 @@ mod tests {
         let mut request = valid_request();
         request.task.clear();
         assert!(validate_handoff_request(&request).is_err());
+    }
+
+    #[test]
+    fn allows_empty_context() {
+        let mut request = valid_request();
+        request.context.clear();
+        assert!(validate_handoff_request(&request).is_ok());
     }
 
     #[test]

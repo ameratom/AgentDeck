@@ -47,8 +47,6 @@ pub fn run() {
             commands::chat::load_chat_messages,
             commands::chat::load_chat_preferences,
             commands::chat::save_chat_preferences,
-            commands::router::load_router_rules,
-            commands::router::save_router_rules,
             commands::providers::list_provider_adapters,
             commands::providers::check_provider_adapter,
             commands::providers::save_provider_api_key,

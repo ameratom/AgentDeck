@@ -3,7 +3,6 @@ import {
   checkProviderAdapter,
   listProviderAdapters,
   loadHandoffRuns,
-  loadRouterRules,
   runHandoff,
   scanEnvironment,
 } from "../../lib/invoke";
@@ -14,13 +13,12 @@ import type {
 } from "../../lib/types";
 import {
   buildApprovalRecord,
-  buildHandoffRequest,
+  buildHandoffRequestFromTarget,
+  filterChatModels,
   recentOutput,
   selectDefaultModel,
   selectDefaultTargetProvider,
 } from "./handoffModel";
-import { evaluateRouter } from "./routerModel";
-import type { RouterRule } from "../../lib/types";
 import { providerTargetLabel } from "../providers/providerModel";
 
 interface HandoffViewProps {
@@ -28,6 +26,14 @@ interface HandoffViewProps {
   highlightRunIndex?: number | null;
   onOpenProviders: () => void;
   onRefreshScan: () => void;
+}
+
+interface ApprovalSnapshot {
+  sourceAgentId: string;
+  sourceAgentName: string;
+  providerId: string;
+  providerName: string;
+  modelId: string;
 }
 
 export function HandoffView({
@@ -54,7 +60,14 @@ export function HandoffView({
   const [dispatching, setDispatching] = useState(false);
   const [approvalOpen, setApprovalOpen] = useState(false);
   const [approvalError, setApprovalError] = useState<string | null>(null);
-  const [routerRules, setRouterRules] = useState<RouterRule[]>([]);
+  const [approvalSnapshot, setApprovalSnapshot] =
+    useState<ApprovalSnapshot | null>(null);
+
+  useEffect(() => {
+    if (scan) {
+      setLocalScan(scan);
+    }
+  }, [scan]);
 
   const activeScan = scan ?? localScan;
   const agents =
@@ -64,24 +77,15 @@ export function HandoffView({
     agents.find((agent) => agent.id === effectiveSourceId) ?? null;
   const selectedProvider =
     providers.find((provider) => provider.id === selectedProviderId) ?? null;
-  const selectedModel =
-    selectedProvider?.models.find((model) => model.id === selectedModelId) ?? null;
-  const routerSuggestion = useMemo(
-    () =>
-      evaluateRouter({
-        task,
-        context,
-        sourceAgentId: effectiveSourceId,
-        providers,
-        rules: routerRules,
-      }),
-    [task, context, effectiveSourceId, providers, routerRules],
+  const modelOptions = useMemo(
+    () => filterChatModels(selectedProvider?.models ?? []),
+    [selectedProvider],
   );
 
   const canDispatch =
     selectedSource !== null &&
-    selectedProvider !== null &&
-    selectedModel !== null &&
+    selectedProviderId !== "" &&
+    selectedModelId !== "" &&
     title.trim() !== "" &&
     task.trim() !== "";
 
@@ -90,10 +94,9 @@ export function HandoffView({
 
     async function load(): Promise<void> {
       try {
-        const [nextProviders, nextRuns, nextRules] = await Promise.all([
+        const [nextProviders, nextRuns] = await Promise.all([
           listProviderAdapters(),
           loadHandoffRuns(12),
-          loadRouterRules(),
         ]);
         if (cancelled) {
           return;
@@ -101,19 +104,34 @@ export function HandoffView({
 
         setProviders(nextProviders);
         setRuns(nextRuns);
-        setRouterRules(nextRules);
 
-        const defaultProvider = selectDefaultTargetProvider(nextProviders);
-        if (defaultProvider) {
-          setSelectedProviderId(defaultProvider.id);
-          setSelectedModelId(selectDefaultModel(defaultProvider));
-        }
+        let initialProviderId = "";
+        setSelectedProviderId((current) => {
+          const resolvedProviderId =
+            current && nextProviders.some((provider) => provider.id === current)
+              ? current
+              : selectDefaultTargetProvider(nextProviders)?.id ?? "";
+          initialProviderId = resolvedProviderId;
+          const provider =
+            nextProviders.find((entry) => entry.id === resolvedProviderId) ?? null;
+          setSelectedModelId((currentModelId) => {
+            if (
+              currentModelId &&
+              provider?.models.some((model) => model.id === currentModelId)
+            ) {
+              return currentModelId;
+            }
+            return selectDefaultModel(provider);
+          });
+          return resolvedProviderId;
+        });
+
         setStatus(
           `Loaded ${nextProviders.length} providers and ${nextRuns.length} recent handoff runs.`,
         );
 
-        if (defaultProvider?.id === "lm-studio") {
-          void refreshProviderModels(defaultProvider.id, cancelled);
+        if (initialProviderId === "lm-studio") {
+          void refreshProviderModels(initialProviderId, nextProviders, cancelled);
         }
       } catch (error) {
         if (!cancelled) {
@@ -132,13 +150,14 @@ export function HandoffView({
     return () => {
       cancelled = true;
     };
-  }, [scan]);
+  }, []);
 
   async function refreshProviderModels(
     providerId: string,
+    knownProviders = providers,
     cancelled = false,
   ): Promise<void> {
-    const provider = providers.find((candidate) => candidate.id === providerId);
+    const provider = knownProviders.find((candidate) => candidate.id === providerId);
     if (
       provider &&
       provider.authMode !== "none" &&
@@ -165,7 +184,7 @@ export function HandoffView({
       setSelectedModelId((current) =>
         current && nextProvider.models.some((model) => model.id === current)
           ? current
-          : nextProvider.models[0]?.id ?? "",
+          : selectDefaultModel(nextProvider),
       );
       setStatus(
         nextProvider.health.available
@@ -208,8 +227,24 @@ export function HandoffView({
   }
 
   async function approveHandoff(): Promise<void> {
-    if (!canDispatch || !selectedSource || !selectedProvider || !selectedModel) {
+    const snapshot = approvalSnapshot;
+
+    if (
+      !snapshot ||
+      snapshot.sourceAgentId.trim() === "" ||
+      snapshot.providerId.trim() === "" ||
+      snapshot.modelId.trim() === "" ||
+      title.trim() === "" ||
+      task.trim() === ""
+    ) {
       setApprovalError("Select a source, target provider, and model first.");
+      return;
+    }
+
+    if (previewBlocked) {
+      setApprovalError(
+        `${snapshot.providerName} needs an API key before this handoff can dispatch.`,
+      );
       return;
     }
 
@@ -217,11 +252,12 @@ export function HandoffView({
     setApprovalError(null);
     setStatus("Dispatching approved handoff...");
     try {
-      const request = buildHandoffRequest({
-        sourceAgentId: selectedSource.id,
-        sourceAgentName: selectedSource.name,
-        provider: selectedProvider,
-        modelId: selectedModel.id,
+      const request = buildHandoffRequestFromTarget({
+        sourceAgentId: snapshot.sourceAgentId,
+        sourceAgentName: snapshot.sourceAgentName,
+        targetProviderId: snapshot.providerId,
+        targetProviderName: snapshot.providerName,
+        targetModelId: snapshot.modelId,
         title,
         task,
         context,
@@ -235,6 +271,7 @@ export function HandoffView({
           : `Handoff failed: ${nextRun.error ?? "unknown error"}`,
       );
       setApprovalOpen(false);
+      setApprovalSnapshot(null);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       setApprovalError(detail);
@@ -244,15 +281,20 @@ export function HandoffView({
     }
   }
 
-  const isLocalTarget = selectedProvider
-    ? selectedProvider.baseUrl.includes("localhost") ||
-      selectedProvider.baseUrl.includes("127.0.0.1")
+  const dispatchTargetProvider =
+    approvalSnapshot !== null
+      ? providers.find((provider) => provider.id === approvalSnapshot.providerId) ??
+        null
+      : selectedProvider;
+  const isLocalTarget = dispatchTargetProvider
+    ? dispatchTargetProvider.baseUrl.includes("localhost") ||
+      dispatchTargetProvider.baseUrl.includes("127.0.0.1")
     : false;
   const previewRisk = isLocalTarget ? "low" : "medium";
   const previewBlocked =
-    selectedProvider !== null &&
-    selectedProvider.authMode !== "none" &&
-    selectedProvider.credentialStatus === "missing";
+    dispatchTargetProvider !== null &&
+    dispatchTargetProvider.authMode !== "none" &&
+    dispatchTargetProvider.credentialStatus === "missing";
   const providerCredentialNote = selectedProvider
     ? `${selectedProvider.name} target provider needs an API key before models can load or a handoff can dispatch. Grok can still be available as a source agent from your subscription setting.`
     : "Select a target provider before loading models.";
@@ -262,7 +304,7 @@ export function HandoffView({
       <header>
         <div>
           <p className="eyebrow">Phase 6 / Handoffs</p>
-          <h2>Manual Handoff Router</h2>
+          <h2>Manual Handoffs</h2>
           <p>
             Build a preview, approve it explicitly, and dispatch the task to a
             chosen provider model. The run record and result stay local.
@@ -340,7 +382,7 @@ export function HandoffView({
                   const nextProvider = providers.find(
                     (provider) => provider.id === nextProviderId,
                   );
-                  setSelectedModelId(nextProvider?.models[0]?.id ?? "");
+                  setSelectedModelId(selectDefaultModel(nextProvider ?? null));
                 }}
                 value={selectedProviderId}
               >
@@ -359,12 +401,12 @@ export function HandoffView({
             <label>
               <span>Target model</span>
               <select
-                disabled={!selectedProvider || selectedProvider.models.length === 0}
+                disabled={!selectedProvider || modelOptions.length === 0}
                 onChange={(event) => setSelectedModelId(event.target.value)}
                 value={selectedModelId}
               >
-                {selectedProvider?.models.length ? (
-                  selectedProvider.models.map((model) => (
+                {modelOptions.length ? (
+                  modelOptions.map((model) => (
                     <option key={model.id} value={model.id}>
                       {model.id}
                     </option>
@@ -380,7 +422,7 @@ export function HandoffView({
                 disabled={!selectedProvider || refreshingModels || previewBlocked}
                 onClick={() => {
                   if (selectedProvider) {
-                    void refreshProviderModels(selectedProvider.id);
+                    void refreshProviderModels(selectedProvider.id, providers);
                   }
                 }}
                 type="button"
@@ -390,7 +432,17 @@ export function HandoffView({
               <button
                 disabled={!canDispatch}
                 onClick={() => {
+                  if (!selectedSource || !selectedProvider) {
+                    return;
+                  }
                   setApprovalError(null);
+                  setApprovalSnapshot({
+                    sourceAgentId: selectedSource.id,
+                    sourceAgentName: selectedSource.name,
+                    providerId: selectedProvider.id,
+                    providerName: selectedProvider.name,
+                    modelId: selectedModelId,
+                  });
                   setApprovalOpen(true);
                 }}
                 type="button"
@@ -428,38 +480,6 @@ export function HandoffView({
               />
             </label>
           </div>
-
-          {routerSuggestion.providerId ? (
-            <div className="handoff-router-suggestion">
-              <div>
-                <strong>Router suggestion</strong>
-                <p>
-                  {routerSuggestion.rule?.id ?? "fallback"} →{" "}
-                  {routerSuggestion.providerId}
-                  {routerSuggestion.modelId
-                    ? ` / ${routerSuggestion.modelId}`
-                    : ""}
-                </p>
-                {routerSuggestion.warning ? (
-                  <p className="handoff-error">{routerSuggestion.warning}</p>
-                ) : null}
-              </div>
-              <button
-                disabled={!routerSuggestion.providerId}
-                onClick={() => {
-                  if (routerSuggestion.providerId) {
-                    setSelectedProviderId(routerSuggestion.providerId);
-                  }
-                  if (routerSuggestion.modelId) {
-                    setSelectedModelId(routerSuggestion.modelId);
-                  }
-                }}
-                type="button"
-              >
-                Apply suggestion
-              </button>
-            </div>
-          ) : null}
 
           <p className="handoff-note">
             {previewBlocked
@@ -527,7 +547,7 @@ export function HandoffView({
         </aside>
       </section>
 
-      {approvalOpen && selectedSource && selectedProvider && selectedModel ? (
+      {approvalOpen && approvalSnapshot ? (
         <div className="handoff-modal-backdrop" role="presentation">
           <section
             aria-modal="true"
@@ -548,15 +568,15 @@ export function HandoffView({
             <dl className="handoff-preview-grid">
               <div>
                 <dt>Source</dt>
-                <dd>{selectedSource.name}</dd>
+                <dd>{approvalSnapshot.sourceAgentName}</dd>
               </div>
               <div>
                 <dt>Target</dt>
-                <dd>{selectedProvider.name}</dd>
+                <dd>{approvalSnapshot.providerName}</dd>
               </div>
               <div>
                 <dt>Model</dt>
-                <dd>{selectedModel.id}</dd>
+                <dd>{approvalSnapshot.modelId}</dd>
               </div>
               <div>
                 <dt>Title</dt>
@@ -574,15 +594,39 @@ export function HandoffView({
               <dd>{context || "No additional context provided."}</dd>
             </div>
 
+            {approvalError ? (
+              <p className="handoff-error">{approvalError}</p>
+            ) : previewBlocked ? (
+              <p className="handoff-error">
+                {approvalSnapshot.providerName} needs an API key before this
+                handoff can dispatch.{" "}
+                <button
+                  className="inline-link-button"
+                  onClick={onOpenProviders}
+                  type="button"
+                >
+                  Open Providers
+                </button>
+              </p>
+            ) : null}
+
             <div className="handoff-modal-actions">
               <button
                 className="secondary-button"
-                onClick={() => setApprovalOpen(false)}
+                onClick={() => {
+                  setApprovalOpen(false);
+                  setApprovalSnapshot(null);
+                  setApprovalError(null);
+                }}
                 type="button"
               >
                 Cancel
               </button>
-              <button disabled={dispatching || previewBlocked} onClick={() => void approveHandoff()} type="button">
+              <button
+                disabled={dispatching || previewBlocked}
+                onClick={() => void approveHandoff()}
+                type="button"
+              >
                 {dispatching ? "Dispatching..." : "Approve and send"}
               </button>
             </div>

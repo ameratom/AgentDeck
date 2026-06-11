@@ -217,31 +217,6 @@ pub struct HandoffRequest {
     pub approvals: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RouterRuleMatch {
-    pub keywords: Option<Vec<String>>,
-    pub task_size_gt: Option<u32>,
-    pub source_agent: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RouterRuleRoute {
-    pub provider_id: String,
-    pub model_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RouterRule {
-    pub id: String,
-    pub priority: u32,
-    pub match_rules: RouterRuleMatch,
-    pub route: RouterRuleRoute,
-    pub warn_large_task: bool,
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HandoffRun {

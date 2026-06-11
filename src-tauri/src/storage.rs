@@ -10,7 +10,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::models::{
     AppSettings, AuditEventRecord, AuditEventsPage, ChatMessage, ChatPreferences, HandoffRun,
-    LocalDeleteResult, LocalExportResult, RouterRule, SkillExecutionRecord,
+    LocalDeleteResult, LocalExportResult, SkillExecutionRecord,
 };
 
 const DEFAULT_REDACT_SENSITIVE_EXPORTS: bool = true;
@@ -95,59 +95,6 @@ pub fn save_chat_preferences(path: &Path, preferences: &ChatPreferences) -> Resu
         &preferences.last_provider_id,
     )?;
     set_string_setting(&connection, "chat_last_model_id", &preferences.last_model_id)?;
-    Ok(())
-}
-
-pub fn load_router_rules(connection: &Connection) -> Result<Vec<RouterRule>, String> {
-    let mut statement = connection
-        .prepare(
-            "SELECT id, priority, rule_json
-             FROM router_rules
-             ORDER BY priority ASC, id ASC",
-        )
-        .map_err(|error| format!("failed to prepare router rules query: {error}"))?;
-    let rows = statement
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, String>(2)?,
-            ))
-        })
-        .map_err(|error| format!("failed to load router rules: {error}"))?;
-    rows.map(|row| {
-        row.map_err(|error| format!("failed to read router rule row: {error}"))
-            .and_then(|(id, priority, rule_json)| {
-                let mut rule: RouterRule = serde_json::from_str(&rule_json)
-                    .map_err(|error| format!("failed to decode router rule: {error}"))?;
-                rule.id = id;
-                rule.priority = priority as u32;
-                Ok(rule)
-            })
-    })
-    .collect::<Result<Vec<_>, _>>()
-}
-
-pub fn save_router_rules(connection: &Connection, rules: &[RouterRule]) -> Result<(), String> {
-    connection
-        .execute("DELETE FROM router_rules", [])
-        .map_err(|error| format!("failed to clear router rules: {error}"))?;
-    for rule in rules {
-        let rule_json = serde_json::to_string(rule)
-            .map_err(|error| format!("failed to encode router rule: {error}"))?;
-        connection
-            .execute(
-                "INSERT INTO router_rules (id, priority, rule_json, updated_at)
-                 VALUES (?1, ?2, ?3, ?4)",
-                params![
-                    rule.id,
-                    rule.priority as i64,
-                    rule_json,
-                    Utc::now().to_rfc3339()
-                ],
-            )
-            .map_err(|error| format!("failed to store router rule: {error}"))?;
-    }
     Ok(())
 }
 
@@ -450,7 +397,6 @@ fn migrate_database(connection: &Connection) -> Result<(), String> {
             .map_err(|error| format!("failed to record schema migration: {error}"))?;
     }
     if !migration_applied(connection, 2)? {
-        seed_default_router_rules(connection)?;
         connection
             .execute(
                 "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
@@ -468,72 +414,6 @@ fn migrate_database(connection: &Connection) -> Result<(), String> {
             .map_err(|error| format!("failed to record schema migration: {error}"))?;
     }
     Ok(())
-}
-
-fn seed_default_router_rules(connection: &Connection) -> Result<(), String> {
-    let defaults = default_router_rules();
-    save_router_rules(connection, &defaults)
-}
-
-pub fn default_router_rules() -> Vec<RouterRule> {
-    vec![
-        RouterRule {
-            id: "rule:code-review-grok".to_owned(),
-            priority: 10,
-            match_rules: crate::models::RouterRuleMatch {
-                keywords: Some(vec!["code review".to_owned()]),
-                task_size_gt: None,
-                source_agent: None,
-            },
-            route: crate::models::RouterRuleRoute {
-                provider_id: "xai".to_owned(),
-                model_id: "grok-4-1-fast-reasoning".to_owned(),
-            },
-            warn_large_task: false,
-        },
-        RouterRule {
-            id: "rule:hermes-prefer-cloud".to_owned(),
-            priority: 20,
-            match_rules: crate::models::RouterRuleMatch {
-                keywords: None,
-                task_size_gt: None,
-                source_agent: Some("agent:hermes".to_owned()),
-            },
-            route: crate::models::RouterRuleRoute {
-                provider_id: "xai".to_owned(),
-                model_id: "grok-4-1-fast-reasoning".to_owned(),
-            },
-            warn_large_task: false,
-        },
-        RouterRule {
-            id: "rule:large-task-warn".to_owned(),
-            priority: 30,
-            match_rules: crate::models::RouterRuleMatch {
-                keywords: None,
-                task_size_gt: Some(8000),
-                source_agent: None,
-            },
-            route: crate::models::RouterRuleRoute {
-                provider_id: "lm-studio".to_owned(),
-                model_id: "".to_owned(),
-            },
-            warn_large_task: true,
-        },
-        RouterRule {
-            id: "rule:local-fallback".to_owned(),
-            priority: 100,
-            match_rules: crate::models::RouterRuleMatch {
-                keywords: None,
-                task_size_gt: None,
-                source_agent: None,
-            },
-            route: crate::models::RouterRuleRoute {
-                provider_id: "lm-studio".to_owned(),
-                model_id: "".to_owned(),
-            },
-            warn_large_task: false,
-        },
-    ]
 }
 
 fn read_bool_setting(

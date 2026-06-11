@@ -4,6 +4,7 @@ import {
   buildHandoffRequest,
   recentOutput,
   selectDefaultModel,
+  selectDefaultModelFromList,
   selectDefaultTargetProvider,
 } from "./handoffModel";
 import type { HandoffRun, ProviderAdapterStatus } from "../../lib/types";
@@ -55,6 +56,23 @@ describe("handoff model helpers", () => {
 
   it("builds an approval record with timestamp", () => {
     expect(buildApprovalRecord()).toMatch(/^user-approved:/);
+  });
+
+  it("prefers qwen chat models over gemma and embedding models", () => {
+    const lmStudio = provider("lm-studio", "LM Studio");
+    lmStudio.models = [
+      { id: "google/gemma-3-4b", ownedBy: null },
+      { id: "text-embedding-nomic-embed-text-v1.5", ownedBy: null },
+      { id: "qwen/qwen3.5-9b", ownedBy: null },
+    ];
+
+    expect(selectDefaultModel(lmStudio)).toBe("qwen/qwen3.5-9b");
+    expect(
+      selectDefaultModelFromList([
+        { id: "google/gemma-3-4b", ownedBy: null },
+        { id: "qwen/qwen3.5-9b", ownedBy: null },
+      ]),
+    ).toBe("qwen/qwen3.5-9b");
   });
 
   it("falls back to the captured error when no output exists", () => {

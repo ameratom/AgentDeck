@@ -24,7 +24,6 @@ import type {
   LocalDeleteResult,
   LocalExportResult,
   AuditEventsPage,
-  RouterRule,
 } from "./types";
 
 export function runPreflight(): Promise<PreflightResult> {
@@ -176,10 +175,4 @@ export function loadAuditEvents(
   return invoke<AuditEventsPage>("load_audit_events", { limit, offset, filter });
 }
 
-export function loadRouterRules(): Promise<RouterRule[]> {
-  return invoke<RouterRule[]>("load_router_rules");
-}
 
-export function saveRouterRules(rules: RouterRule[]): Promise<RouterRule[]> {
-  return invoke<RouterRule[]>("save_router_rules", { rules });
-}

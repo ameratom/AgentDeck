@@ -3,11 +3,9 @@ import {
   deleteLocalData,
   exportLocalData,
   loadAppSettings,
-  loadRouterRules,
-  saveRouterRules,
   updateAppSettings,
 } from "../../lib/invoke";
-import type { AppSettings, RouterRule } from "../../lib/types";
+import type { AppSettings } from "../../lib/types";
 
 const DEFAULT_SETTINGS: AppSettings = {
   redactSensitiveExports: true,
@@ -21,7 +19,6 @@ export function SettingsView() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [busyAction, setBusyAction] = useState<"export" | "delete" | null>(null);
-  const [routerRules, setRouterRules] = useState<RouterRule[]>([]);
   const [status, setStatus] = useState("Loading hardening settings.");
 
   useEffect(() => {
@@ -29,13 +26,9 @@ export function SettingsView() {
 
     async function load(): Promise<void> {
       try {
-        const [nextSettings, nextRules] = await Promise.all([
-          loadAppSettings(),
-          loadRouterRules(),
-        ]);
+        const nextSettings = await loadAppSettings();
         if (!cancelled) {
           setSettings(nextSettings);
-          setRouterRules(nextRules);
           setStatus("Hardening settings loaded.");
         }
       } catch (error) {
@@ -197,54 +190,6 @@ export function SettingsView() {
             <span>Keep Grok available as a source agent from your active subscription.</span>
           </label>
         </article>
-      </section>
-
-      <section className="settings-router" aria-label="Router rules">
-        <div className="settings-card-heading">
-          <div>
-            <p className="eyebrow">Routing</p>
-            <h3>Handoff router rules</h3>
-          </div>
-          <span>{routerRules.length} rules</span>
-        </div>
-        <div className="settings-router-list">
-          {routerRules.map((rule) => (
-            <article className="settings-router-rule" key={rule.id}>
-              <strong>{rule.id}</strong>
-              <span>
-                priority {rule.priority} → {rule.route.providerId}
-                {rule.route.modelId ? ` / ${rule.route.modelId}` : ""}
-              </span>
-              <small>
-                {rule.matchRules.keywords?.join(", ") ?? "any task"}
-                {rule.matchRules.sourceAgent
-                  ? ` • source ${rule.matchRules.sourceAgent}`
-                  : ""}
-                {rule.matchRules.taskSizeGt
-                  ? ` • size > ${rule.matchRules.taskSizeGt}`
-                  : ""}
-              </small>
-            </article>
-          ))}
-        </div>
-        <button
-          disabled={loading || saving}
-          onClick={() =>
-            void (async () => {
-              setStatus("Resetting router rules to defaults...");
-              try {
-                const saved = await saveRouterRules(routerRules);
-                setRouterRules(saved);
-                setStatus("Router rules saved.");
-              } catch (error) {
-                setStatus(`Router save failed: ${formatError(error)}`);
-              }
-            })()
-          }
-          type="button"
-        >
-          Save router rules
-        </button>
       </section>
 
       <section className="settings-actions" aria-label="Data controls">
