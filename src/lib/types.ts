@@ -107,9 +107,36 @@ export interface ChatResponse {
 
 export type CredentialStatus =
   | "not-required"
-  | "keychain"
+  | "stored"
   | "environment"
-  | "missing";
+  | "missing"
+  | "unreadable";
+
+export type CatalogSource = "none" | "live" | "static" | "fallback";
+
+export interface LegacyCredentialImportOutcome {
+  slotId: string;
+  label: string;
+  status:
+    | "found"
+    | "already-imported"
+    | "imported"
+    | "imported-unverified"
+    | "not-found"
+    | "denied"
+    | "conflict"
+    | "error";
+  detail: string;
+}
+
+export interface LegacyCredentialImportResult {
+  imported: string[];
+  verified: string[];
+  missing: string[];
+  conflicts: string[];
+  errors: string[];
+  outcomes: LegacyCredentialImportOutcome[];
+}
 
 export interface ProviderAdapterStatus {
   id: string;
@@ -118,6 +145,8 @@ export interface ProviderAdapterStatus {
   baseUrl: string;
   authMode: string;
   credentialStatus: CredentialStatus;
+  catalogSource: CatalogSource;
+  verifiedAvailable: boolean;
   health: ProviderHealth;
   models: LocalModel[];
   capabilities: string[];

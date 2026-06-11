@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   checkProviderAdapter,
   listProviderAdapters,
@@ -16,10 +16,16 @@ import {
   buildHandoffRequestFromTarget,
   filterChatModels,
   recentOutput,
+  selectActiveScan,
+  resolvePreferredHandoffModel,
   selectDefaultModel,
   selectDefaultTargetProvider,
 } from "./handoffModel";
-import { providerTargetLabel } from "../providers/providerModel";
+import {
+  providerCredentialBlocked,
+  providerDispatchBlocked,
+  providerTargetLabel,
+} from "../providers/providerModel";
 
 interface HandoffViewProps {
   scan: EnvironmentScan | null;
@@ -63,13 +69,7 @@ export function HandoffView({
   const [approvalSnapshot, setApprovalSnapshot] =
     useState<ApprovalSnapshot | null>(null);
 
-  useEffect(() => {
-    if (scan) {
-      setLocalScan(scan);
-    }
-  }, [scan]);
-
-  const activeScan = scan ?? localScan;
+  const activeScan = selectActiveScan(localScan, scan);
   const agents =
     activeScan?.entities.filter((entity) => entity.entityType === "agent") ?? [];
   const effectiveSourceId = selectedSourceId || agents[0]?.id || "";
@@ -81,13 +81,67 @@ export function HandoffView({
     () => filterChatModels(selectedProvider?.models ?? []),
     [selectedProvider],
   );
+  const selectedProviderBlocked = providerDispatchBlocked(selectedProvider);
 
   const canDispatch =
     selectedSource !== null &&
     selectedProviderId !== "" &&
     selectedModelId !== "" &&
     title.trim() !== "" &&
-    task.trim() !== "";
+    task.trim() !== "" &&
+    !selectedProviderBlocked;
+
+  const refreshProviderModels = useCallback(async (
+    providerId: string,
+    knownProviders: ProviderAdapterStatus[],
+    cancelled = false,
+  ): Promise<void> => {
+    const provider = knownProviders.find((candidate) => candidate.id === providerId);
+    if (provider && providerCredentialBlocked(provider)) {
+      setStatus(
+        provider.credentialStatus === "unreadable"
+          ? `${provider.name} has an unreadable stored key. Re-save it in Providers.`
+          : `${provider.name} target provider needs an API key before models can load.`,
+      );
+      return;
+    }
+
+    setRefreshingModels(true);
+    setStatus(`Loading models for ${providerId}...`);
+    try {
+      const nextProvider = await checkProviderAdapter({ providerId });
+      if (cancelled) {
+        return;
+      }
+      setProviders((current) =>
+        current.map((provider) =>
+          provider.id === nextProvider.id ? nextProvider : provider,
+        ),
+      );
+      setSelectedModelId((current) => {
+        if (!nextProvider.verifiedAvailable) {
+          return current;
+        }
+        return nextProvider.models.some((model) => model.id === current)
+          ? current
+          : selectDefaultModel(nextProvider);
+      });
+      setStatus(
+        nextProvider.verifiedAvailable
+          ? `${nextProvider.name} is ready with ${nextProvider.models.length} models.`
+          : `${nextProvider.name}: ${nextProvider.health.detail}`,
+      );
+    } catch (error) {
+      if (!cancelled) {
+        const detail = error instanceof Error ? error.message : String(error);
+        setStatus(`Failed to load models: ${detail}`);
+      }
+    } finally {
+      if (!cancelled) {
+        setRefreshingModels(false);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,32 +159,18 @@ export function HandoffView({
         setProviders(nextProviders);
         setRuns(nextRuns);
 
-        let initialProviderId = "";
-        setSelectedProviderId((current) => {
-          const resolvedProviderId =
-            current && nextProviders.some((provider) => provider.id === current)
-              ? current
-              : selectDefaultTargetProvider(nextProviders)?.id ?? "";
-          initialProviderId = resolvedProviderId;
-          const provider =
-            nextProviders.find((entry) => entry.id === resolvedProviderId) ?? null;
-          setSelectedModelId((currentModelId) => {
-            if (
-              currentModelId &&
-              provider?.models.some((model) => model.id === currentModelId)
-            ) {
-              return currentModelId;
-            }
-            return selectDefaultModel(provider);
-          });
-          return resolvedProviderId;
-        });
+        const initialProviderId =
+          selectDefaultTargetProvider(nextProviders)?.id ?? "";
+        const provider =
+          nextProviders.find((entry) => entry.id === initialProviderId) ?? null;
+        setSelectedProviderId(initialProviderId);
+        setSelectedModelId(selectDefaultModel(provider));
 
         setStatus(
           `Loaded ${nextProviders.length} providers and ${nextRuns.length} recent handoff runs.`,
         );
 
-        if (initialProviderId === "lm-studio") {
+        if (initialProviderId) {
           void refreshProviderModels(initialProviderId, nextProviders, cancelled);
         }
       } catch (error) {
@@ -150,58 +190,7 @@ export function HandoffView({
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  async function refreshProviderModels(
-    providerId: string,
-    knownProviders = providers,
-    cancelled = false,
-  ): Promise<void> {
-    const provider = knownProviders.find((candidate) => candidate.id === providerId);
-    if (
-      provider &&
-      provider.authMode !== "none" &&
-      provider.credentialStatus === "missing"
-    ) {
-      setStatus(
-        `${provider.name} target provider needs an API key before models can load.`,
-      );
-      return;
-    }
-
-    setRefreshingModels(true);
-    setStatus(`Loading models for ${providerId}...`);
-    try {
-      const nextProvider = await checkProviderAdapter({ providerId });
-      if (cancelled) {
-        return;
-      }
-      setProviders((current) =>
-        current.map((provider) =>
-          provider.id === nextProvider.id ? nextProvider : provider,
-        ),
-      );
-      setSelectedModelId((current) =>
-        current && nextProvider.models.some((model) => model.id === current)
-          ? current
-          : selectDefaultModel(nextProvider),
-      );
-      setStatus(
-        nextProvider.health.available
-          ? `${nextProvider.name} is ready with ${nextProvider.models.length} models.`
-          : `${nextProvider.name}: ${nextProvider.health.detail}`,
-      );
-    } catch (error) {
-      if (!cancelled) {
-        const detail = error instanceof Error ? error.message : String(error);
-        setStatus(`Failed to load models: ${detail}`);
-      }
-    } finally {
-      if (!cancelled) {
-        setRefreshingModels(false);
-      }
-    }
-  }
+  }, [refreshProviderModels]);
 
   async function refreshSourceAgents(): Promise<void> {
     setScanningSources(true);
@@ -241,9 +230,9 @@ export function HandoffView({
       return;
     }
 
-    if (previewBlocked) {
+    if (providerDispatchBlocked(dispatchTargetProvider)) {
       setApprovalError(
-        `${snapshot.providerName} needs an API key before this handoff can dispatch.`,
+        `${snapshot.providerName} must have a verified credential and live model before this handoff can dispatch.`,
       );
       return;
     }
@@ -291,10 +280,8 @@ export function HandoffView({
       dispatchTargetProvider.baseUrl.includes("127.0.0.1")
     : false;
   const previewRisk = isLocalTarget ? "low" : "medium";
-  const previewBlocked =
-    dispatchTargetProvider !== null &&
-    dispatchTargetProvider.authMode !== "none" &&
-    dispatchTargetProvider.credentialStatus === "missing";
+  const previewBlocked = providerCredentialBlocked(dispatchTargetProvider);
+  const previewDispatchBlocked = providerDispatchBlocked(dispatchTargetProvider);
   const providerCredentialNote = selectedProvider
     ? `${selectedProvider.name} target provider needs an API key before models can load or a handoff can dispatch. Grok can still be available as a source agent from your subscription setting.`
     : "Select a target provider before loading models.";
@@ -382,7 +369,10 @@ export function HandoffView({
                   const nextProvider = providers.find(
                     (provider) => provider.id === nextProviderId,
                   );
-                  setSelectedModelId(selectDefaultModel(nextProvider ?? null));
+                  setSelectedModelId((current) =>
+                    resolvePreferredHandoffModel(nextProvider ?? null, current),
+                  );
+                  void refreshProviderModels(nextProviderId, providers);
                 }}
                 value={selectedProviderId}
               >
@@ -484,6 +474,8 @@ export function HandoffView({
           <p className="handoff-note">
             {previewBlocked
               ? providerCredentialNote
+              : previewDispatchBlocked
+                ? "Check this provider successfully before reviewing or dispatching a handoff."
               : "Approval is required before any provider call is made."}
           </p>
           {previewBlocked ? (
@@ -623,7 +615,7 @@ export function HandoffView({
                 Cancel
               </button>
               <button
-                disabled={dispatching || previewBlocked}
+                disabled={dispatching || previewDispatchBlocked}
                 onClick={() => void approveHandoff()}
                 type="button"
               >

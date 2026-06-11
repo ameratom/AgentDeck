@@ -1,6 +1,7 @@
 import type {
   HandoffRequest,
   HandoffRun,
+  EnvironmentScan,
   LocalModel,
   ProviderAdapterStatus,
 } from "../../lib/types";
@@ -17,12 +18,45 @@ export function selectDefaultTargetProvider(
   );
 }
 
+export function selectActiveScan(
+  localScan: EnvironmentScan | null,
+  parentScan: EnvironmentScan | null,
+): EnvironmentScan | null {
+  if (!localScan) {
+    return parentScan;
+  }
+  if (!parentScan) {
+    return localScan;
+  }
+  const localTime = Date.parse(localScan.scannedAt);
+  const parentTime = Date.parse(parentScan.scannedAt);
+  if (Number.isNaN(localTime) || Number.isNaN(parentTime)) {
+    return localScan;
+  }
+  return localTime >= parentTime ? localScan : parentScan;
+}
+
 export function filterChatModels(models: LocalModel[]): LocalModel[] {
   return models.filter((model) => !EMBEDDING_MODEL_PATTERN.test(model.id));
 }
 
 export function selectDefaultModel(provider: ProviderAdapterStatus | null): string {
-  return selectDefaultModelFromList(provider?.models ?? []);
+  return provider?.verifiedAvailable
+    ? selectDefaultModelFromList(provider.models)
+    : "";
+}
+
+export function resolvePreferredHandoffModel(
+  provider: ProviderAdapterStatus | null,
+  preferredId?: string,
+): string {
+  if (!provider?.verifiedAvailable) {
+    return preferredId ?? "";
+  }
+  const models = filterChatModels(provider.models);
+  return preferredId && models.some((model) => model.id === preferredId)
+    ? preferredId
+    : selectDefaultModelFromList(provider.models);
 }
 
 export function selectDefaultModelFromList(models: LocalModel[]): string {

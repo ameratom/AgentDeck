@@ -2,12 +2,9 @@
 set -euo pipefail
 
 GROK_MCP_DIR="${GROK_MCP_DIR:-$HOME/Grok-MCP}"
-KEYCHAIN_SERVICE="com.agentdeck.desktop.provider"
-KEYCHAIN_ACCOUNT="xai"
 
 if [[ -z "${XAI_API_KEY:-}" ]]; then
-  XAI_API_KEY="$(security find-generic-password -s "$KEYCHAIN_SERVICE" -a "$KEYCHAIN_ACCOUNT" -w 2>/dev/null || true)"
-  if [[ -z "$XAI_API_KEY" && -f "$GROK_MCP_DIR/.env" ]]; then
+  if [[ -f "$GROK_MCP_DIR/.env" ]]; then
     # shellcheck disable=SC1091
     set -a
     source "$GROK_MCP_DIR/.env"
@@ -16,7 +13,7 @@ if [[ -z "${XAI_API_KEY:-}" ]]; then
 fi
 
 if [[ -z "${XAI_API_KEY:-}" ]]; then
-  echo "Grok MCP: missing XAI_API_KEY. Save it in AgentDeck onboarding or $GROK_MCP_DIR/.env" >&2
+  echo "Grok MCP: missing XAI_API_KEY. Set it in the launcher environment or $GROK_MCP_DIR/.env" >&2
   exit 1
 fi
 

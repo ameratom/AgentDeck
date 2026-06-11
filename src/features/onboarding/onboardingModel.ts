@@ -123,7 +123,7 @@ export function grokCredentialReady(
 ): boolean {
   const grok = providers.find((provider) => provider.id === "xai");
   return (
-    grok?.credentialStatus === "keychain" ||
+    grok?.credentialStatus === "stored" ||
     grok?.credentialStatus === "environment"
   );
 }

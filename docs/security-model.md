@@ -117,12 +117,24 @@ Do not auto-start MCP servers during scanning.
 
 ## Provider key storage
 
-Use macOS Keychain through Rust `keyring`.
+Provider API keys are encrypted with AES-256-GCM and stored in the local
+`provider_secrets` SQLite table. The device-local 32-byte master key is stored
+as `secret.key` beside the database with `0600` permissions.
 
-Allowed fallback:
+- `secret.key` is created only when a real credential is saved or imported.
+- Read-only provider inventory never creates a key.
+- Ciphertext without a readable master key is reported as unreadable, not
+  missing.
+- OpenAI-compatible and Codex share the canonical `openai` credential slot.
+- Deleting either shared provider credential removes it for both.
 
-- environment variables for local dev only
-- never persist plaintext API keys in SQLite.
+macOS Keychain is not a runtime credential source. The app may read legacy
+AgentDeck entries only from the explicit **Import existing Keychain keys**
+action. Startup, provider inventory, Chat, Handoffs, and dispatch never access
+Keychain.
+
+Environment variables remain an allowed local-development override. Plaintext
+API keys must never be persisted in SQLite, logs, audit records, or UI state.
 
 ## Audit log
 

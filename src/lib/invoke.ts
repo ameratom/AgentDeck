@@ -24,6 +24,7 @@ import type {
   LocalDeleteResult,
   LocalExportResult,
   AuditEventsPage,
+  LegacyCredentialImportResult,
 } from "./types";
 
 export function runPreflight(): Promise<PreflightResult> {
@@ -87,6 +88,10 @@ export function saveProviderApiKey(
 
 export function deleteProviderApiKey(providerId: string): Promise<void> {
   return invoke<void>("delete_provider_api_key", { providerId });
+}
+
+export function importLegacyProviderCredentials(): Promise<LegacyCredentialImportResult> {
+  return invoke<LegacyCredentialImportResult>("import_legacy_provider_credentials");
 }
 
 export function scanMcpInventory(): Promise<McpInventory> {
@@ -174,5 +179,4 @@ export function loadAuditEvents(
 ): Promise<AuditEventsPage> {
   return invoke<AuditEventsPage>("load_audit_events", { limit, offset, filter });
 }
-
 

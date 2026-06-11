@@ -2,16 +2,28 @@ import { useEffect, useState } from "react";
 import {
   checkProviderAdapter,
   deleteProviderApiKey,
+  importLegacyProviderCredentials,
   listProviderAdapters,
   saveProviderApiKey,
 } from "../../lib/invoke";
-import type { ProviderAdapterStatus } from "../../lib/types";
-import { credentialLabel, replaceProvider } from "./providerModel";
+import type {
+  LegacyCredentialImportOutcome,
+  ProviderAdapterStatus,
+} from "../../lib/types";
+import {
+  credentialLabel,
+  credentialStatusClass,
+  importOutcomeForProvider,
+  replaceProvider,
+} from "./providerModel";
 
 export function ProvidersView() {
   const [providers, setProviders] = useState<ProviderAdapterStatus[]>([]);
   const [keys, setKeys] = useState<Record<string, string>>({});
   const [busyProvider, setBusyProvider] = useState<string | null>(null);
+  const [importOutcomes, setImportOutcomes] = useState<
+    LegacyCredentialImportOutcome[]
+  >([]);
   const [status, setStatus] = useState("Loading provider adapter inventory.");
 
   async function refreshProviders(): Promise<void> {
@@ -69,35 +81,61 @@ export function ProvidersView() {
       return;
     }
     setBusyProvider(providerId);
-    setStatus("Saving the API key to macOS Keychain...");
+    setStatus("Saving the API key...");
     try {
       await saveProviderApiKey({ providerId, apiKey });
       setKeys((current) => ({ ...current, [providerId]: "" }));
       await refreshProviders();
-      setStatus('API key saved. When macOS prompts for your login password, click "Always Allow" to prevent repeated prompts.');
+      setStatus("API key saved (encrypted on this device).");
     } catch (error) {
-      setStatus(`Keychain save failed: ${formatError(error)}`);
+      setStatus(`Save failed: ${formatError(error)}`);
     } finally {
       setBusyProvider(null);
     }
   }
 
   async function removeKey(provider: ProviderAdapterStatus): Promise<void> {
-    if (
-      !window.confirm(
-        `Remove the ${provider.name} API key from macOS Keychain?`,
-      )
-    ) {
+    const sharedWarning =
+      provider.id === "codex" || provider.id === "openai-compatible"
+        ? " This also removes the shared credential from OpenAI-compatible and Codex."
+        : "";
+    if (!window.confirm(`Remove the ${provider.name} API key?${sharedWarning}`)) {
       return;
     }
     setBusyProvider(provider.id);
-    setStatus("Removing the API key from macOS Keychain...");
+    setStatus("Removing the API key...");
     try {
       await deleteProviderApiKey(provider.id);
       await refreshProviders();
-      setStatus("Keychain credential removed.");
+      setStatus("API key removed.");
     } catch (error) {
-      setStatus(`Keychain removal failed: ${formatError(error)}`);
+      setStatus(`Removal failed: ${formatError(error)}`);
+    } finally {
+      setBusyProvider(null);
+    }
+  }
+
+  async function importLegacyKeys(): Promise<void> {
+    setBusyProvider("legacy-import");
+    setStatus("Importing legacy Keychain entries. macOS may ask for approval once.");
+    try {
+      const result = await importLegacyProviderCredentials();
+      setImportOutcomes(result.outcomes);
+      await refreshProviders();
+      const parts = [
+        result.imported.length > 0
+          ? `Imported ${result.imported.join(", ")}.`
+          : "No keys imported.",
+        result.verified.length > 0
+          ? `Verified ${result.verified.join(", ")}.`
+          : "",
+        result.conflicts.join(" "),
+        result.errors.join(" "),
+        ...result.outcomes.map((outcome) => outcome.detail),
+      ].filter(Boolean);
+      setStatus([...new Set(parts)].join(" "));
+    } catch (error) {
+      setStatus(`Legacy Keychain import failed: ${formatError(error)}`);
     } finally {
       setBusyProvider(null);
     }
@@ -111,10 +149,22 @@ export function ProvidersView() {
           <h2>Provider Adapters</h2>
           <p>
             Inspect local and cloud model endpoints. Cloud checks run only when
-            you select Check, and API keys are stored in macOS Keychain.
+            you select Check, and API keys are encrypted on this device.
           </p>
         </div>
-        <span className="phase-badge">Keychain backed</span>
+        <div className="provider-header-actions">
+          <button
+            className="secondary-button"
+            disabled={busyProvider !== null}
+            onClick={() => void importLegacyKeys()}
+            type="button"
+          >
+            {busyProvider === "legacy-import"
+              ? "Importing..."
+              : "Import existing Keychain keys"}
+          </button>
+          <span className="phase-badge">Encrypted on device</span>
+        </div>
       </header>
 
       <p className="provider-page-status" role="status">
@@ -124,8 +174,12 @@ export function ProvidersView() {
 
       <section className="provider-grid" aria-label="Provider adapters">
         {providers.map((provider) => {
-          const busy = busyProvider === provider.id;
+          const busy = busyProvider !== null;
           const usesKey = provider.authMode !== "none";
+          const importOutcome = importOutcomeForProvider(
+            provider.id,
+            importOutcomes,
+          );
           return (
             <article className="provider-card" key={provider.id}>
               <div className="provider-heading">
@@ -135,12 +189,16 @@ export function ProvidersView() {
                 </div>
                 <span
                   className={
-                    provider.health.available
+                    provider.verifiedAvailable
                       ? "provider-health online"
                       : "provider-health"
                   }
                 >
-                  {provider.health.available ? "Online" : "Unchecked"}
+                  {provider.verifiedAvailable
+                    ? "Online"
+                    : provider.credentialStatus === "unreadable"
+                      ? "Needs attention"
+                      : "Unchecked"}
                 </span>
               </div>
 
@@ -151,8 +209,18 @@ export function ProvidersView() {
                 </div>
                 <div>
                   <dt>Credential</dt>
-                  <dd>{credentialLabel(provider.credentialStatus)}</dd>
+                  <dd className={credentialStatusClass(provider.credentialStatus)}>
+                    {credentialLabel(provider.credentialStatus)}
+                  </dd>
                 </div>
+                {importOutcome ? (
+                  <div>
+                    <dt>Last import</dt>
+                    <dd className={`import-outcome ${importOutcome.status}`}>
+                      {importOutcome.detail}
+                    </dd>
+                  </div>
+                ) : null}
                 <div>
                   <dt>Capabilities</dt>
                   <dd>{provider.capabilities.join(", ")}</dd>
@@ -165,10 +233,22 @@ export function ProvidersView() {
                       : provider.health.detail}
                   </dd>
                 </div>
+                <div>
+                  <dt>Catalog</dt>
+                  <dd>
+                    {provider.catalogSource === "none"
+                      ? "Not loaded"
+                      : `${provider.catalogSource}${provider.verifiedAvailable ? " (verified)" : " (unverified)"}`}
+                  </dd>
+                </div>
               </dl>
 
               {usesKey ? (
                 <div className="credential-controls">
+                  {provider.id === "codex" ||
+                  provider.id === "openai-compatible" ? (
+                    <p>OpenAI-compatible and Codex share this encrypted key.</p>
+                  ) : null}
                   <input
                     aria-label={`${provider.name} API key`}
                     autoComplete="off"
@@ -190,7 +270,7 @@ export function ProvidersView() {
                   >
                     Save key
                   </button>
-                  {provider.credentialStatus === "keychain" ? (
+                  {provider.credentialStatus === "stored" ? (
                     <button
                       className="secondary-button"
                       disabled={busy}

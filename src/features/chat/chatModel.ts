@@ -15,6 +15,15 @@ export function selectDefaultModel(models: LocalModel[]): string {
   );
 }
 
+export function resolvePreferredModel(
+  models: LocalModel[],
+  preferredId?: string,
+): string {
+  return preferredId && models.some((model) => model.id === preferredId)
+    ? preferredId
+    : selectDefaultModel(models);
+}
+
 export function toChatHistory(messages: ChatMessage[]): ChatMessageInput[] {
   return messages.map((message) => ({
     role: message.role,

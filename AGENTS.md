@@ -18,7 +18,9 @@ Act as a senior software engineer. Make small, verifiable changes. Prefer workin
 2. Make surgical changes.
 3. Keep the app local-first.
 4. Do not hard-code user secrets.
-5. Store provider credentials in macOS Keychain or request them at runtime.
+5. Store provider credentials in AgentDeck's encrypted local secret store or
+   request them at runtime. macOS Keychain access is allowed only for an
+   explicit, user-initiated legacy import.
 6. Do not execute destructive shell commands.
 7. Do not auto-modify third-party agent configs until read/validate/export is complete.
 8. Missing tools must be shown as unavailable, not fatal.

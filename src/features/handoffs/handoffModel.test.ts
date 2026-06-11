@@ -3,6 +3,8 @@ import {
   buildApprovalRecord,
   buildHandoffRequest,
   recentOutput,
+  selectActiveScan,
+  resolvePreferredHandoffModel,
   selectDefaultModel,
   selectDefaultModelFromList,
   selectDefaultTargetProvider,
@@ -16,6 +18,8 @@ const provider = (id: string, name: string): ProviderAdapterStatus => ({
   baseUrl: id === "lm-studio" ? "http://localhost:1234/v1" : "https://api.example.com/v1",
   authMode: id === "lm-studio" ? "none" : "bearer-key",
   credentialStatus: id === "lm-studio" ? "not-required" : "missing",
+  catalogSource: "live",
+  verifiedAvailable: true,
   health: {
     name,
     endpoint: "",
@@ -34,6 +38,28 @@ describe("handoff model helpers", () => {
         provider("lm-studio", "LM Studio"),
       ])?.id,
     ).toBe("lm-studio");
+  });
+
+  it("prefers a newly scanned local source inventory", () => {
+    const parent = {
+      scannedAt: "2026-06-11T10:00:00Z",
+      tools: [],
+      providers: [],
+      processes: [],
+      configs: [],
+      entities: [],
+    };
+    const local = { ...parent, scannedAt: "2026-06-11T10:01:00Z" };
+
+    expect(selectActiveScan(local, parent)?.scannedAt).toBe(
+      "2026-06-11T10:01:00Z",
+    );
+    expect(selectActiveScan(null, parent)?.scannedAt).toBe(
+      "2026-06-11T10:00:00Z",
+    );
+    expect(selectActiveScan(parent, local)?.scannedAt).toBe(
+      "2026-06-11T10:01:00Z",
+    );
   });
 
   it("builds a trimmed handoff request", () => {
@@ -73,6 +99,17 @@ describe("handoff model helpers", () => {
         { id: "qwen/qwen3.5-9b", ownedBy: null },
       ]),
     ).toBe("qwen/qwen3.5-9b");
+  });
+
+  it("keeps the selected model when a provider refresh is not verified", () => {
+    const unverified = {
+      ...provider("xai", "xAI"),
+      verifiedAvailable: false,
+      models: [],
+    };
+
+    expect(resolvePreferredHandoffModel(unverified, "grok-4")).toBe("grok-4");
+    expect(resolvePreferredHandoffModel(unverified)).toBe("");
   });
 
   it("falls back to the captured error when no output exists", () => {

@@ -56,7 +56,8 @@ Tasks:
 - OpenAI-compatible adapter.
 - xAI adapter.
 - Anthropic adapter optional.
-- Keychain storage.
+- Encrypted local provider secret storage.
+- Explicit one-time import from legacy macOS Keychain entries.
 
 ## Phase 5
 
@@ -87,9 +88,9 @@ AgentDeck MCP server.
 
 Tasks:
 
-- Expose read-only tools.
-- Test with Claude Code and Codex.
-- Add action tools behind approval.
+- [x] Expose read-only tools over stdio and loopback HTTP.
+- [x] Add action tools behind approval and permission checks.
+- [ ] Complete end-to-end validation with Claude Code and Codex.
 
 ## Phase 8
 

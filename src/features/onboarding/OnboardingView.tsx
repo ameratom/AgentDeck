@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   checkProviderAdapter,
   completeOnboarding,
@@ -30,18 +30,14 @@ interface OnboardingViewProps {
 
 export function OnboardingView({ initialScan, onComplete }: OnboardingViewProps) {
   const [step, setStep] = useState<OnboardingStepId>("scan");
-  const [scan, setScan] = useState<EnvironmentScan | null>(initialScan);
+  const [localScan, setScan] = useState<EnvironmentScan | null>(null);
   const [providers, setProviders] = useState<ProviderAdapterStatus[]>([]);
   const [grokKey, setGrokKey] = useState("");
   const [handoffRun, setHandoffRun] = useState<HandoffRun | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("Welcome to AgentDeck.");
 
-  useEffect(() => {
-    if (initialScan) {
-      setScan(initialScan);
-    }
-  }, [initialScan]);
+  const scan = localScan ?? initialScan;
 
   async function refreshProviders(): Promise<ProviderAdapterStatus[]> {
     const nextProviders = await listProviderAdapters();
@@ -72,7 +68,7 @@ export function OnboardingView({ initialScan, onComplete }: OnboardingViewProps)
     }
 
     setBusy(true);
-    setStatus("Saving the Grok API key to macOS Keychain...");
+    setStatus("Saving the Grok API key...");
     try {
       await saveProviderApiKey({ providerId: "xai", apiKey });
       setGrokKey("");
@@ -85,12 +81,12 @@ export function OnboardingView({ initialScan, onComplete }: OnboardingViewProps)
         );
       });
       if (grokCredentialReady(nextProviders)) {
-        setStatus("Grok API key stored in Keychain.");
+        setStatus("Grok API key saved (encrypted on this device).");
       } else {
         setStatus("Key saved. Provider check will run on the next step.");
       }
     } catch (error) {
-      setStatus(`Keychain save failed: ${formatError(error)}`);
+      setStatus(`Save failed: ${formatError(error)}`);
     } finally {
       setBusy(false);
     }
@@ -288,7 +284,7 @@ export function OnboardingView({ initialScan, onComplete }: OnboardingViewProps)
             <h3>Connect Grok (xAI API)</h3>
             <p>
               Grok is the recommended first cloud provider because the xAI API free
-              tier offers strong value. Keys are stored in macOS Keychain.
+              tier offers strong value. Keys are encrypted on this device.
             </p>
             <label className="onboarding-field">
               <span>xAI API key</span>
@@ -303,8 +299,8 @@ export function OnboardingView({ initialScan, onComplete }: OnboardingViewProps)
             </label>
             <p className="onboarding-hint">
               {grokCredentialReady(providers)
-                ? "A Grok key is already available in Keychain or your environment."
-                : "You can skip this step and add the key later in Providers."}
+                ? "A Grok key is already saved on this device or in your environment."
+                : "You can skip this step, save a key here, or use Providers → Import existing Keychain keys to migrate a legacy xAI key."}
             </p>
             <div className="onboarding-actions">
               <button disabled={busy} onClick={() => void saveGrokKey()} type="button">

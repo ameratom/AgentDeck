@@ -60,6 +60,8 @@ function provider(
     baseUrl: "https://example.com",
     authMode: "api-key",
     credentialStatus,
+    catalogSource: available ? "live" : "none",
+    verifiedAvailable: available,
     health: {
       name: id,
       endpoint: "https://example.com",
@@ -91,14 +93,14 @@ describe("onboarding model", () => {
 
   it("detects when Grok credentials are ready", () => {
     expect(
-      grokCredentialReady([provider("xai", "keychain"), provider("lm-studio", "not-required")]),
+      grokCredentialReady([provider("xai", "stored"), provider("lm-studio", "not-required")]),
     ).toBe(true);
     expect(grokCredentialReady([provider("xai", "missing")])).toBe(false);
   });
 
   it("prefers LM Studio for the onboarding handoff smoke test", () => {
     const target = selectTestHandoffTarget([
-      provider("xai", "keychain"),
+      provider("xai", "stored"),
       provider("lm-studio", "not-required"),
     ]);
 

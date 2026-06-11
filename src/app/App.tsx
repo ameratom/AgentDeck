@@ -251,7 +251,7 @@ export default function App() {
       </aside>
 
       {activeView === "Chat" ? (
-        <ChatView />
+        <ChatView onOpenProviders={() => navigate("Providers")} />
       ) : activeView === "Handoffs" ? (
         <HandoffView
           highlightRunIndex={handoffRunIndex}
@@ -323,7 +323,7 @@ function withTimeout<T>(
 interface GraphViewProps {
   busyAction: string | null;
   onRefresh: () => void;
-  onSelect: (entity: DiscoveredEntity) => void;
+  onSelect: (entity: DiscoveredEntity | null) => void;
   onCloseDetails: () => void;
   scan: EnvironmentScan | null;
   selectedEntity: DiscoveredEntity | null;
@@ -340,14 +340,14 @@ function GraphView({
   status,
 }: GraphViewProps) {
   const [useOrbital, setUseOrbital] = useState(true);
-  const entities = scan?.entities ?? [];
+  const entities = useMemo(() => scan?.entities ?? [], [scan]);
 
   const sortedEntities = useMemo(() => {
     return [...entities].sort((a, b) => a.name.localeCompare(b.name));
   }, [entities]);
 
   const clearSelection = () => {
-    onSelect(null as any); // Clear selection
+    onSelect(null);
   };
 
   return (

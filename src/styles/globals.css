@@ -420,6 +420,14 @@ header > div > p:last-child {
   font-size: 10px;
 }
 
+.provider-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .provider-page-status .indicator {
   flex: 0 0 auto;
   margin: 0;
@@ -463,6 +471,26 @@ header > div > p:last-child {
   border-color: #2a584e;
   color: #9ad9c3;
   background: #10211d;
+}
+
+.credential-status.missing {
+  color: #d4a574;
+}
+
+.credential-status.unreadable,
+.import-outcome.denied,
+.import-outcome.error,
+.import-outcome.conflict {
+  color: #e08a8a;
+}
+
+.credential-status.stored {
+  color: #9ad9c3;
+}
+
+.import-outcome.imported,
+.import-outcome.verified {
+  color: #9ad9c3;
 }
 
 .provider-card dl {

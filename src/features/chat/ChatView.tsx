@@ -1,12 +1,16 @@
 import { Channel } from "@tauri-apps/api/core";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   buildChatRequest,
-  selectDefaultModel,
+  resolvePreferredModel,
   selectDefaultProvider,
   toChatHistory,
 } from "./chatModel";
-import { credentialLabel } from "../providers/providerModel";
+import {
+  credentialLabel,
+  providerCredentialBlocked,
+  providerDispatchBlocked,
+} from "../providers/providerModel";
 import {
   cancelStreamChat,
   checkProviderAdapter,
@@ -24,7 +28,11 @@ import type {
 
 const CONVERSATION_ID = "conversation:agentdeck-local";
 
-export function ChatView() {
+interface ChatViewProps {
+  onOpenProviders: () => void;
+}
+
+export function ChatView({ onOpenProviders }: ChatViewProps) {
   const [providers, setProviders] = useState<ProviderAdapterStatus[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState("");
   const [selectedModel, setSelectedModel] = useState("");
@@ -46,16 +54,41 @@ export function ChatView() {
       ),
     [selectedProvider],
   );
-  const previewBlocked =
-    selectedProvider !== null &&
-    selectedProvider.authMode !== "none" &&
-    selectedProvider.credentialStatus === "missing";
+  const previewBlocked = providerCredentialBlocked(selectedProvider);
+  const dispatchBlocked = providerDispatchBlocked(selectedProvider);
   const canSend =
     selectedProviderId !== "" &&
     selectedModel !== "" &&
     draft.trim() !== "" &&
     !sending &&
-    !previewBlocked;
+    !dispatchBlocked;
+
+  const refreshProviderModels = useCallback(async (providerId: string): Promise<void> => {
+    setRefreshingModels(true);
+    setStatus(`Loading models for ${providerId}...`);
+    try {
+      const nextProvider = await checkProviderAdapter({ providerId });
+      setProviders((current) =>
+        current.map((provider) =>
+          provider.id === nextProvider.id ? nextProvider : provider,
+        ),
+      );
+      setSelectedModel((current) =>
+        nextProvider.verifiedAvailable
+          ? resolvePreferredModel(nextProvider.models, current)
+          : current,
+      );
+      setStatus(
+        nextProvider.verifiedAvailable
+          ? `${nextProvider.name} ready with ${nextProvider.models.length} models.`
+          : `${nextProvider.name}: ${nextProvider.health.detail}`,
+      );
+    } catch (error) {
+      setStatus(`Model load failed: ${formatError(error)}`);
+    } finally {
+      setRefreshingModels(false);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -82,9 +115,10 @@ export function ChatView() {
         setSelectedProviderId(providerId);
         const provider =
           nextProviders.find((entry) => entry.id === providerId) ?? null;
-        const modelId =
-          preferences.lastModelId ||
-          selectDefaultModel(provider?.models ?? []);
+        const modelId = resolvePreferredModel(
+          provider?.models ?? [],
+          preferences.lastModelId,
+        );
         setSelectedModel(modelId);
         setStatus(`Loaded ${nextProviders.length} provider adapters.`);
       } catch (error) {
@@ -115,38 +149,14 @@ export function ChatView() {
   }, [selectedProviderId, selectedModel]);
 
   useEffect(() => {
-    if (!selectedProviderId || loading || sending) {
+    if (!selectedProviderId || loading) {
       return;
     }
-    void refreshProviderModels(selectedProviderId);
-  }, [selectedProviderId]);
-
-  async function refreshProviderModels(providerId: string): Promise<void> {
-    setRefreshingModels(true);
-    setStatus(`Loading models for ${providerId}...`);
-    try {
-      const nextProvider = await checkProviderAdapter({ providerId });
-      setProviders((current) =>
-        current.map((provider) =>
-          provider.id === nextProvider.id ? nextProvider : provider,
-        ),
-      );
-      setSelectedModel((current) =>
-        current && nextProvider.models.some((model) => model.id === current)
-          ? current
-          : selectDefaultModel(nextProvider.models),
-      );
-      setStatus(
-        nextProvider.health.available
-          ? `${nextProvider.name} ready with ${nextProvider.models.length} models.`
-          : `${nextProvider.name}: ${nextProvider.health.detail}`,
-      );
-    } catch (error) {
-      setStatus(`Model load failed: ${formatError(error)}`);
-    } finally {
-      setRefreshingModels(false);
-    }
-  }
+    const timer = window.setTimeout(() => {
+      void refreshProviderModels(selectedProviderId);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loading, refreshProviderModels, selectedProviderId]);
 
   async function submitMessage(): Promise<void> {
     const content = draft.trim();
@@ -260,7 +270,9 @@ export function ChatView() {
                 const nextProvider = providers.find(
                   (provider) => provider.id === nextProviderId,
                 );
-                setSelectedModel(selectDefaultModel(nextProvider?.models ?? []));
+                setSelectedModel((current) =>
+                  resolvePreferredModel(nextProvider?.models ?? [], current),
+                );
               }}
               value={selectedProviderId}
             >
@@ -308,7 +320,20 @@ export function ChatView() {
           {selectedProvider ? (
             <span className="provider-health">
               {credentialLabel(selectedProvider.credentialStatus)}
+              {selectedProvider.catalogSource !== "none"
+                ? ` / ${selectedProvider.catalogSource} catalog`
+                : ""}
             </span>
+          ) : null}
+
+          {previewBlocked ? (
+            <button
+              className="inline-link-button"
+              onClick={onOpenProviders}
+              type="button"
+            >
+              Open Providers
+            </button>
           ) : null}
 
           {selectedProviderId === "xai" ? (
@@ -363,11 +388,13 @@ export function ChatView() {
         >
           <textarea
             aria-label="Message"
-            disabled={loading || selectedModel === "" || previewBlocked}
+            disabled={loading || selectedModel === "" || dispatchBlocked}
             onChange={(event) => setDraft(event.target.value)}
             placeholder={
               previewBlocked
-                ? "Add provider credentials before chatting with this provider."
+                ? "Import or save provider credentials before chatting."
+                : selectedProvider && !selectedProvider.verifiedAvailable
+                  ? "Check this provider successfully before chatting."
                 : "Ask any configured agent something..."
             }
             rows={4}

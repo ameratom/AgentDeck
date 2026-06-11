@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildChatRequest, selectDefaultModel } from "./chatModel";
+import {
+  buildChatRequest,
+  resolvePreferredModel,
+  selectDefaultModel,
+} from "./chatModel";
 import type { ChatMessage, LocalModel } from "../../lib/types";
 
 describe("chat model helpers", () => {
@@ -10,6 +14,19 @@ describe("chat model helpers", () => {
     ];
 
     expect(selectDefaultModel(models)).toBe("qwen/qwen3.5-9b");
+    expect(resolvePreferredModel(models, "removed-cloud-model")).toBe(
+      "qwen/qwen3.5-9b",
+    );
+  });
+
+  it("retains a selected model while a failed refresh has no replacement", () => {
+    expect(resolvePreferredModel([], "gpt-5.4")).toBe("");
+    expect(
+      resolvePreferredModel(
+        [{ id: "gpt-5.4", ownedBy: "openai" }],
+        "gpt-5.4",
+      ),
+    ).toBe("gpt-5.4");
   });
 
   it("builds a local chat request with trimmed user content", () => {

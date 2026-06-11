@@ -6,10 +6,11 @@ import {
   ReactFlow,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { DiscoveredEntity } from "../../lib/types";
 import {
   buildOrbitalGraph,
+  type OrbitalNodeData,
   type OrbitalNode,
 } from "./orbitalModel";
 
@@ -24,17 +25,10 @@ export function OrbitalGraph({
   selectedId,
   onSelect,
 }: OrbitalGraphProps) {
-  const [transitionKey, setTransitionKey] = useState(0);
   const { nodes, edges } = useMemo(
     () => buildOrbitalGraph(selectedId, entities),
     [selectedId, entities],
   );
-
-  useEffect(() => {
-    if (selectedId) {
-      setTransitionKey((value) => value + 1);
-    }
-  }, [selectedId]);
 
   if (!selectedId || nodes.length === 0) {
     return (
@@ -45,7 +39,7 @@ export function OrbitalGraph({
   }
 
   return (
-    <div className="orbital-graph" data-transition={transitionKey}>
+    <div className="orbital-graph" data-transition={selectedId}>
       <div className="orbital-ring-guides" aria-hidden="true">
         <span className="orbital-guide orbital-guide-1" />
         <span className="orbital-guide orbital-guide-2" />
@@ -74,7 +68,7 @@ export function OrbitalGraph({
           bgColor="#0b1015"
           maskColor="rgba(3, 7, 10, 0.72)"
           nodeColor={(node) =>
-            (node.data as any).entityType === "agent"
+            (node.data as OrbitalNodeData).entityType === "agent"
               ? "#59c7a9"
               : "#6b7280"
           }

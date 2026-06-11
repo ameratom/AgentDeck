@@ -109,17 +109,19 @@ uv venv && source .venv/bin/activate
 uv sync
 ```
 
-### Claude Code (recommended: AgentDeck launcher)
+### Claude Code (AgentDeck launcher)
 
-AgentDeck ships a launcher that reads the xAI key from the same Keychain entry used
-during onboarding (`com.agentdeck.desktop.provider` / `xai`):
+AgentDeck ships a launcher that starts Grok MCP without reading macOS Keychain:
 
 ```bash
 claude mcp add grok-mcp -- \
   /Users/claudemccready/Desktop/Scripts/Codex/AgentDeck/scripts/grok-mcp-launcher.sh
 ```
 
-The AgentDeck project `.mcp.json` also includes `grok-mcp` alongside `agentdeck`.
+The AgentDeck project `.mcp.json` also includes `grok-mcp` alongside
+`agentdeck`. Set `XAI_API_KEY` in the launch environment or in
+`~/Grok-MCP/.env`. AgentDeck's encrypted provider store is intentionally
+private to the desktop app and is not decrypted by shell launchers.
 
 Manual key override (optional):
 
@@ -227,4 +229,4 @@ curl -s -X POST http://127.0.0.1:7823/mcp \
 | `permission denied: agent:claude-code cannot perform execute-skill` | Enable `execute-skill` in Agents → Permissions |
 | Grok MCP auth error | Set `XAI_API_KEY` or add `.env` in the Grok-MCP directory |
 | Skill fails with LM Studio 400 | Load a chat model in LM Studio; pick it in Chat preferences |
-| Keychain prompt loops | Use your **Mac login password**; AgentDeck stores provider keys under service `com.agentdeck.desktop.provider` |
+| Legacy Keychain prompt | Run **Import existing Keychain keys** once and approve the macOS prompt, or enter the API key manually. Normal AgentDeck operation does not access Keychain. |
