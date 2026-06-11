@@ -662,7 +662,7 @@ fn load_audit_events(
 }
 
 fn database_path() -> Result<PathBuf, String> {
-    storage::home_database_path()
+    storage::resolve_database_path(None)
 }
 
 pub fn internal_error_response(id: Option<Value>, message: &str) -> Value {

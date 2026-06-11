@@ -38,6 +38,19 @@ pub fn home_database_path() -> Result<PathBuf, String> {
         .join("agentdeck.sqlite3"))
 }
 
+/// Single resolver for the local SQLite database used by all subsystems.
+pub fn resolve_database_path(app: Option<&AppHandle>) -> Result<PathBuf, String> {
+    if let Some(app) = app {
+        return database_path(app);
+    }
+    let path = home_database_path()?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("failed to create app data directory: {error}"))?;
+    }
+    Ok(path)
+}
+
 pub fn open_database(path: &Path) -> Result<Connection, String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
@@ -481,6 +494,11 @@ fn migrate_database(connection: &Connection) -> Result<(), String> {
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY (agent_id, action)
             );
+            CREATE TABLE IF NOT EXISTS provider_secrets (
+                slot_id TEXT PRIMARY KEY,
+                ciphertext TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
             ",
         )
         .map_err(|error| format!("failed to initialize local database: {error}"))?;
@@ -509,6 +527,52 @@ fn migrate_database(connection: &Connection) -> Result<(), String> {
             )
             .map_err(|error| format!("failed to record schema migration: {error}"))?;
     }
+    if !migration_applied(connection, 4)? {
+        connection
+            .execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+                params![4_i64, Utc::now().to_rfc3339()],
+            )
+            .map_err(|error| format!("failed to record schema migration: {error}"))?;
+    }
+    Ok(())
+}
+
+pub fn store_provider_secret(path: &Path, slot_id: &str, ciphertext: &str) -> Result<(), String> {
+    let connection = open_database(path)?;
+    connection
+        .execute(
+            "INSERT INTO provider_secrets (slot_id, ciphertext, updated_at)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(slot_id) DO UPDATE SET
+                ciphertext = excluded.ciphertext,
+                updated_at = excluded.updated_at",
+            params![slot_id, ciphertext, Utc::now().to_rfc3339()],
+        )
+        .map_err(|error| format!("failed to store provider secret: {error}"))?;
+    Ok(())
+}
+
+pub fn read_provider_secret(path: &Path, slot_id: &str) -> Result<Option<String>, String> {
+    let connection = open_database(path)?;
+    let mut statement = connection
+        .prepare("SELECT ciphertext FROM provider_secrets WHERE slot_id = ?1")
+        .map_err(|error| format!("failed to prepare provider secret query: {error}"))?;
+    match statement.query_row([slot_id], |row| row.get::<_, String>(0)) {
+        Ok(ciphertext) => Ok(Some(ciphertext)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(error) => Err(format!("failed to read provider secret: {error}")),
+    }
+}
+
+pub fn delete_provider_secret(path: &Path, slot_id: &str) -> Result<(), String> {
+    let connection = open_database(path)?;
+    connection
+        .execute(
+            "DELETE FROM provider_secrets WHERE slot_id = ?1",
+            params![slot_id],
+        )
+        .map_err(|error| format!("failed to delete provider secret: {error}"))?;
     Ok(())
 }
 

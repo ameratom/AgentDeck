@@ -83,6 +83,18 @@ pub async fn stream_chat_message(
     }
 
     let definition = providers::find_provider(&request.provider_id)?;
+    let verification_definition = definition.clone();
+    let verification_model = request.model.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let base_url = providers::provider_base_url(&verification_definition);
+        providers::verify_provider_model(
+            &verification_definition,
+            &base_url,
+            &verification_model,
+        )
+    })
+    .await
+    .map_err(|error| format!("provider verification task failed: {error}"))??;
     let started_at = Utc::now();
     let stream_result = chat_providers::stream_provider_chat(
         &definition,

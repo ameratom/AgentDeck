@@ -1,7 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::env;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
@@ -14,37 +13,181 @@ use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
 use crate::models::{
-    ChatMessageInput, DiscoveredEntity, LocalModel, ProviderAdapterStatus, ProviderCheckRequest,
-    ProviderCredentialRequest, ProviderHealth,
+    CatalogSource, ChatMessageInput, CredentialStatus, DiscoveredEntity,
+    LegacyCredentialImportOutcome, LegacyCredentialImportResult, LocalModel,
+    ProviderAdapterStatus, ProviderCheckRequest, ProviderCredentialRequest, ProviderHealth,
 };
+use crate::secrets;
 use crate::storage;
 
-const KEYCHAIN_SERVICE: &str = "com.agentdeck.desktop.provider";
 const LOCAL_LM_STUDIO_URL: &str = "http://localhost:1234/v1";
-const KEYCHAIN_LOOKUP_TIMEOUT: Duration = Duration::from_secs(30);
-
+const LEGACY_KEYCHAIN_SERVICE: &str = "com.agentdeck.desktop.provider";
 static API_KEY_CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
 
 fn api_key_cache() -> &'static Mutex<HashMap<String, String>> {
     API_KEY_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn cache_api_key(provider_id: &str, key: &str) {
-    if let Ok(mut cache) = api_key_cache().lock() {
-        cache.insert(provider_id.to_owned(), key.to_owned());
+fn credential_slot_id(definition: &ProviderDefinition) -> &'static str {
+    match definition.key_env {
+        Some("OPENAI_API_KEY") => "openai",
+        Some("ANTHROPIC_API_KEY") => "anthropic",
+        Some("XAI_API_KEY") => "xai",
+        _ => definition.id,
     }
 }
 
-fn get_cached_api_key(provider_id: &str) -> Option<String> {
+fn cache_api_key(slot_id: &str, key: &str) {
+    if let Ok(mut cache) = api_key_cache().lock() {
+        cache.insert(slot_id.to_owned(), key.to_owned());
+    }
+}
+
+fn get_cached_api_key(slot_id: &str) -> Option<String> {
     api_key_cache()
         .lock()
         .ok()
-        .and_then(|cache| cache.get(provider_id).cloned())
+        .and_then(|cache| cache.get(slot_id).cloned())
 }
 
-fn evict_cached_api_key(provider_id: &str) {
+fn evict_cached_api_key(slot_id: &str) {
     if let Ok(mut cache) = api_key_cache().lock() {
-        cache.remove(provider_id);
+        cache.remove(slot_id);
+    }
+}
+
+/// Encrypt and persist an API key in the app-local secret store, keyed by slot.
+fn store_provider_secret(
+    path: &Path,
+    definition: &ProviderDefinition,
+    api_key: &str,
+) -> Result<(), String> {
+    let slot = credential_slot_id(definition);
+    let master = secrets::master_key(path)?;
+    let ciphertext = secrets::encrypt(&master, api_key)?;
+    storage::store_provider_secret(path, slot, &ciphertext)?;
+    cache_api_key(slot, api_key);
+    Ok(())
+}
+
+/// Read and decrypt the stored API key for a provider, if present.
+fn read_stored_secret_at_path(
+    database_path: Option<&Path>,
+    definition: &ProviderDefinition,
+) -> Result<Option<String>, String> {
+    let path = match database_path {
+        Some(path) => path.to_path_buf(),
+        None => storage::resolve_database_path(None)?,
+    };
+    read_stored_secret_at(&path, definition)
+}
+
+fn read_stored_secret(definition: &ProviderDefinition) -> Result<Option<String>, String> {
+    read_stored_secret_at_path(None, definition)
+}
+
+fn read_stored_secret_at(
+    path: &Path,
+    definition: &ProviderDefinition,
+) -> Result<Option<String>, String> {
+    let slot = credential_slot_id(definition);
+    let Some(ciphertext) = storage::read_provider_secret(&path, slot)? else {
+        return Ok(None);
+    };
+    let master = secrets::load_master_key(&path)?;
+    let secret = secrets::decrypt(&master, &ciphertext)?;
+    cache_api_key(slot, &secret);
+    Ok(Some(secret))
+}
+
+/// Remove the stored API key from the secret store and the in-memory cache.
+fn delete_stored_secret(path: &Path, definition: &ProviderDefinition) -> Result<(), String> {
+    let slot = credential_slot_id(definition);
+    storage::delete_provider_secret(path, slot)?;
+    evict_cached_api_key(slot);
+    Ok(())
+}
+
+fn mark_shared_credential_stored(
+    path: &Path,
+    definition: &ProviderDefinition,
+    stored: bool,
+) -> Result<(), String> {
+    let Some(key_env) = definition.key_env else {
+        return Ok(());
+    };
+    for sibling in provider_definitions() {
+        if sibling.key_env == Some(key_env) {
+            storage::set_provider_credential_stored(path, sibling.id, stored)?;
+        }
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+struct CredentialState {
+    status: CredentialStatus,
+    error: Option<String>,
+}
+
+fn credential_state(definition: &ProviderDefinition) -> CredentialState {
+    let path = storage::resolve_database_path(None).ok();
+    credential_state_at(definition, path.as_deref())
+}
+
+fn credential_state_at(
+    definition: &ProviderDefinition,
+    database_path: Option<&Path>,
+) -> CredentialState {
+    if definition.key_env.is_none() {
+        return CredentialState {
+            status: CredentialStatus::NotRequired,
+            error: None,
+        };
+    }
+
+    let slot = credential_slot_id(definition);
+    if get_cached_api_key(slot).is_some() {
+        return CredentialState {
+            status: CredentialStatus::Stored,
+            error: None,
+        };
+    }
+
+    let Some(path) = database_path else {
+        return CredentialState {
+            status: CredentialStatus::Unreadable,
+            error: Some("Stored credential path is unavailable.".to_owned()),
+        };
+    };
+
+    match read_stored_secret_at(path, definition) {
+        Ok(Some(_)) => CredentialState {
+            status: CredentialStatus::Stored,
+            error: None,
+        },
+        Ok(None) => {
+            if provider_definitions().iter().any(|sibling| {
+                sibling.key_env == definition.key_env
+                    && storage::is_provider_credential_stored(path, sibling.id)
+            }) {
+                let _ = mark_shared_credential_stored(path, definition, false);
+            }
+            if read_env_api_key(definition).is_some() {
+                return CredentialState {
+                    status: CredentialStatus::Environment,
+                    error: None,
+                };
+            }
+            CredentialState {
+                status: CredentialStatus::Missing,
+                error: None,
+            }
+        }
+        Err(error) => CredentialState {
+            status: CredentialStatus::Unreadable,
+            error: Some(format!("Stored credential is unreadable: {error}")),
+        },
     }
 }
 
@@ -167,9 +310,10 @@ struct AnthropicContentBlock {
 #[tauri::command]
 pub async fn list_provider_adapters() -> Result<Vec<ProviderAdapterStatus>, String> {
     tauri::async_runtime::spawn_blocking(|| {
+        let database_path = storage::resolve_database_path(None)?;
         provider_definitions()
             .into_iter()
-            .map(|definition| status_for_definition(&definition, false))
+            .map(|definition| status_for_definition(&definition, false, Some(&database_path)))
             .collect()
     })
     .await
@@ -186,10 +330,10 @@ pub async fn check_provider_adapter(
     tauri::async_runtime::spawn_blocking(move || {
         let started_at = Utc::now();
         let definition = find_definition(&request.provider_id)?;
-        let result = status_for_definition(&definition, true);
+        let result = status_for_definition(&definition, true, Some(&database_path));
         if let Ok(provider) = &result {
-            if provider.credential_status == "keychain" {
-                let _ = storage::set_provider_credential_stored(&database_path, definition.id, true);
+            if provider.credential_status == CredentialStatus::Stored {
+                let _ = mark_shared_credential_stored(&database_path, &definition, true);
             }
         }
         let status = if result
@@ -234,12 +378,9 @@ pub async fn save_provider_api_key(
                 definition.name
             ));
         }
-        let result = keychain_entry(definition.id)?
-            .set_password(&api_key)
-            .map_err(|error| format!("failed to save API key in Keychain: {error}"));
+        let result = store_provider_secret(&database_path, &definition, &api_key);
         if result.is_ok() {
-            storage::set_provider_credential_stored(&database_path, definition.id, true)?;
-            cache_api_key(definition.id, &api_key);
+            mark_shared_credential_stored(&database_path, &definition, true)?;
         }
         let _ = store_provider_audit(
             &database_path,
@@ -255,6 +396,283 @@ pub async fn save_provider_api_key(
 }
 
 #[tauri::command]
+pub async fn import_legacy_provider_credentials(
+    app: AppHandle,
+) -> Result<LegacyCredentialImportResult, String> {
+    let database_path = database_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let started_at = Utc::now();
+        let (candidates, mut result) = collect_legacy_credentials_for_slots(
+            lookup_legacy_keychain_credential,
+            |slot| !encrypted_slot_is_usable(&database_path, slot),
+        );
+
+        for (slot, secret) in candidates {
+            let provider_id = match slot.as_str() {
+                "openai" => "openai-compatible",
+                "anthropic" => "anthropic",
+                "xai" => "xai",
+                _ => continue,
+            };
+            let definition = find_definition(provider_id)?;
+            let label = legacy_slot_label(&slot).to_owned();
+            match store_provider_secret(&database_path, &definition, &secret) {
+                Ok(()) => {
+                    mark_shared_credential_stored(&database_path, &definition, true)?;
+                    result.imported.push(label.clone());
+                    let base_url = resolved_base_url(&definition);
+                    match fetch_provider_models(&definition, &base_url) {
+                        Ok(models) if !models.is_empty() => {
+                            result.verified.push(label.clone());
+                            set_import_outcome(
+                                &mut result,
+                                &slot,
+                                "imported",
+                                format!(
+                                    "{label} was imported and verified with {} models.",
+                                    models.len()
+                                ),
+                            );
+                        }
+                        Ok(_) => {
+                            let detail = format!("{label}: provider returned no models");
+                            result.errors.push(detail.clone());
+                            set_import_outcome(
+                                &mut result,
+                                &slot,
+                                "imported-unverified",
+                                detail,
+                            );
+                        }
+                        Err(error) => {
+                            let detail = format!("{label}: {error}");
+                            result.errors.push(detail.clone());
+                            set_import_outcome(
+                                &mut result,
+                                &slot,
+                                "imported-unverified",
+                                detail,
+                            );
+                        }
+                    }
+                }
+                Err(error) => {
+                    let detail = format!("{label}: {error}");
+                    result.errors.push(detail.clone());
+                    set_import_outcome(&mut result, &slot, "error", detail);
+                }
+            }
+        }
+        result.imported.sort();
+        result.verified.sort();
+        result.missing.sort();
+        result.conflicts.sort();
+        result.errors.sort();
+        result.outcomes.sort_by(|left, right| left.slot_id.cmp(&right.slot_id));
+        let already_imported = result
+            .outcomes
+            .iter()
+            .any(|outcome| outcome.status == "already-imported");
+        let audit_status = if result.imported.is_empty() && !already_imported {
+            "error"
+        } else if result.errors.is_empty() && result.conflicts.is_empty() {
+            "success"
+        } else {
+            "partial"
+        };
+        let _ = store_provider_audit(
+            &database_path,
+            "provider.credential.import",
+            audit_status,
+            "legacy-keychain",
+            started_at,
+        );
+        Ok(result)
+    })
+    .await
+    .map_err(|error| format!("credential import task failed: {error}"))?
+}
+
+fn legacy_slot_label(slot: &str) -> &'static str {
+    match slot {
+        "openai" => "OpenAI / Codex",
+        "anthropic" => "Anthropic",
+        "xai" => "xAI",
+        _ => "Unknown provider",
+    }
+}
+
+fn import_outcome(
+    slot: &str,
+    status: &str,
+    detail: impl Into<String>,
+) -> LegacyCredentialImportOutcome {
+    LegacyCredentialImportOutcome {
+        slot_id: slot.to_owned(),
+        label: legacy_slot_label(slot).to_owned(),
+        status: status.to_owned(),
+        detail: detail.into(),
+    }
+}
+
+fn set_import_outcome(
+    result: &mut LegacyCredentialImportResult,
+    slot: &str,
+    status: &str,
+    detail: impl Into<String>,
+) {
+    let next = import_outcome(slot, status, detail);
+    if let Some(existing) = result
+        .outcomes
+        .iter_mut()
+        .find(|outcome| outcome.slot_id == slot)
+    {
+        *existing = next;
+    } else {
+        result.outcomes.push(next);
+    }
+}
+
+#[cfg(test)]
+fn collect_legacy_credentials<F>(
+    mut lookup: F,
+) -> (BTreeMap<String, String>, LegacyCredentialImportResult)
+where
+    F: FnMut(&str) -> Result<Option<String>, String>,
+{
+    collect_legacy_credentials_for_slots(&mut lookup, |_| true)
+}
+
+fn collect_legacy_credentials_for_slots<F, S>(
+    mut lookup: F,
+    mut should_import: S,
+) -> (BTreeMap<String, String>, LegacyCredentialImportResult)
+where
+    F: FnMut(&str) -> Result<Option<String>, String>,
+    S: FnMut(&str) -> bool,
+{
+    let slots: [(&str, &[&str]); 3] = [
+        ("openai", &["openai-compatible", "codex", "openai"]),
+        ("anthropic", &["anthropic"]),
+        ("xai", &["xai"]),
+    ];
+    let mut candidates = BTreeMap::new();
+    let mut result = LegacyCredentialImportResult {
+        imported: Vec::new(),
+        verified: Vec::new(),
+        missing: Vec::new(),
+        conflicts: Vec::new(),
+        errors: Vec::new(),
+        outcomes: Vec::new(),
+    };
+
+    for (slot, accounts) in slots {
+        if !should_import(slot) {
+            set_import_outcome(
+                &mut result,
+                slot,
+                "already-imported",
+                format!(
+                    "{} is already stored and readable; Keychain was not accessed.",
+                    legacy_slot_label(slot)
+                ),
+            );
+            continue;
+        }
+        let mut values = Vec::new();
+        let mut lookup_failed = false;
+        for account in accounts {
+            match lookup(account) {
+                Ok(Some(secret)) if !secret.trim().is_empty() => {
+                    if !values.iter().any(|existing: &String| existing == &secret) {
+                        values.push(secret);
+                    }
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    lookup_failed = true;
+                    result.errors.push(format!(
+                        "{} Keychain account {account}: {error}",
+                        legacy_slot_label(slot)
+                    ));
+                }
+            }
+        }
+
+        if lookup_failed {
+            set_import_outcome(
+                &mut result,
+                slot,
+                "denied",
+                format!(
+                    "{} could not be read from macOS Keychain. Approve access or enter the key manually.",
+                    legacy_slot_label(slot)
+                ),
+            );
+            continue;
+        }
+        match values.len() {
+            0 => {
+                let label = legacy_slot_label(slot).to_owned();
+                result.missing.push(label.clone());
+                set_import_outcome(
+                    &mut result,
+                    slot,
+                    "not-found",
+                    format!("No legacy Keychain entry was found for {label}."),
+                );
+            }
+            1 => {
+                candidates.insert(slot.to_owned(), values.remove(0));
+                set_import_outcome(
+                    &mut result,
+                    slot,
+                    "found",
+                    format!(
+                        "{} was found and is ready to import.",
+                        legacy_slot_label(slot)
+                    ),
+                );
+            }
+            _ => {
+                let detail = format!(
+                    "{} has conflicting legacy Keychain entries; no key was imported",
+                    legacy_slot_label(slot)
+                );
+                result.conflicts.push(detail.clone());
+                set_import_outcome(&mut result, slot, "conflict", detail);
+            }
+        }
+    }
+
+    (candidates, result)
+}
+
+fn encrypted_slot_is_usable(database_path: &Path, slot: &str) -> bool {
+    let provider_id = match slot {
+        "openai" => "openai-compatible",
+        "anthropic" => "anthropic",
+        "xai" => "xai",
+        _ => return false,
+    };
+    find_definition(provider_id)
+        .ok()
+        .and_then(|definition| read_stored_secret_at(database_path, &definition).ok())
+        .flatten()
+        .is_some()
+}
+
+fn lookup_legacy_keychain_credential(account: &str) -> Result<Option<String>, String> {
+    let entry = Entry::new(LEGACY_KEYCHAIN_SERVICE, account)
+        .map_err(|error| format!("failed to open Keychain entry: {error}"))?;
+    match entry.get_password() {
+        Ok(secret) if !secret.trim().is_empty() => Ok(Some(secret)),
+        Ok(_) | Err(keyring::Error::NoEntry) => Ok(None),
+        Err(error) => Err(format!("failed to read Keychain entry: {error}")),
+    }
+}
+
+#[tauri::command]
 pub async fn delete_provider_api_key(app: AppHandle, provider_id: String) -> Result<(), String> {
     validate_provider_id(&provider_id)?;
     let database_path = database_path(&app)?;
@@ -267,15 +685,9 @@ pub async fn delete_provider_api_key(app: AppHandle, provider_id: String) -> Res
                 definition.name
             ));
         }
-        let entry = keychain_entry(definition.id)?;
-        let result = match entry.delete_credential() {
-            Ok(()) => Ok(()),
-            Err(keyring::Error::NoEntry) => Ok(()),
-            Err(error) => Err(format!("failed to delete API key from Keychain: {error}")),
-        };
+        let result = delete_stored_secret(&database_path, &definition);
         if result.is_ok() {
-            storage::set_provider_credential_stored(&database_path, &provider_id, false)?;
-            evict_cached_api_key(&provider_id);
+            mark_shared_credential_stored(&database_path, &definition, false)?;
         }
         let _ = store_provider_audit(
             &database_path,
@@ -301,11 +713,19 @@ pub(crate) fn xai_readiness() -> XaiReadiness {
     xai_readiness_with_probe(false)
 }
 
-pub(crate) fn xai_readiness_with_probe(probe_keychain: bool) -> XaiReadiness {
+pub(crate) fn xai_readiness_with_probe(probe_remote: bool) -> XaiReadiness {
     let definition = find_definition("xai").expect("xAI provider definition must exist");
-    let credential_status = credential_status(&definition, probe_keychain);
+    let state = credential_state(&definition);
+    let credential_status = credential_status_text(state.status).to_owned();
     let subscription_active = grok_subscription_active();
-    let health = if credential_status == "missing" && subscription_active {
+    let health = if let Some(error) = state.error {
+        ProviderHealth {
+            name: definition.name.to_owned(),
+            endpoint: resolved_base_url(&definition),
+            available: false,
+            detail: error,
+        }
+    } else if credential_status == "missing" && subscription_active {
         ProviderHealth {
             name: definition.name.to_owned(),
             endpoint: resolved_base_url(&definition),
@@ -320,12 +740,12 @@ pub(crate) fn xai_readiness_with_probe(probe_keychain: bool) -> XaiReadiness {
             available: false,
             detail: "xAI subscription or API key not configured.".to_owned(),
         }
-    } else if credential_status == "keychain" && !probe_keychain {
+    } else if credential_status == "stored" && !probe_remote {
         ProviderHealth {
             name: definition.name.to_owned(),
             endpoint: resolved_base_url(&definition),
             available: true,
-            detail: "API key stored in Keychain. Run a provider check to verify.".to_owned(),
+            detail: "API key stored locally. Run a provider check to verify.".to_owned(),
         }
     } else {
         xai_health(&definition)
@@ -378,32 +798,82 @@ pub(crate) fn grok_status_label(credential_status: &str, health_available: bool)
 fn status_for_definition(
     definition: &ProviderDefinition,
     check_remote: bool,
+    database_path: Option<&Path>,
 ) -> Result<ProviderAdapterStatus, String> {
     let base_url = resolved_base_url(definition);
-    let credential_status = credential_status(definition, check_remote);
+    let resolved_path = match database_path {
+        Some(path) => Some(path.to_path_buf()),
+        None => storage::resolve_database_path(None).ok(),
+    };
+    let state = credential_state_at(definition, resolved_path.as_deref());
+    let credential_status = state.status;
     let mut health = ProviderHealth {
         name: definition.name.to_owned(),
         endpoint: base_url.clone(),
         available: false,
-        detail: if definition.key_env.is_some() {
+        detail: if let Some(error) = state.error {
+            error
+        } else if definition.key_env.is_some() {
             "Not checked. Cloud provider checks run only when requested.".to_owned()
         } else {
             "Not checked.".to_owned()
         },
     };
     let mut models = Vec::new();
+    let mut catalog_source = CatalogSource::None;
+    let mut verified_available = false;
 
     if check_remote {
-        match fetch_provider_models(definition, &base_url) {
-            Ok(next_models) => {
-                health.available = true;
-                health.detail = format!("{} models available.", next_models.len());
-                models = next_models;
+        let credentials_ready = definition.key_env.is_none()
+            || matches!(
+                credential_status,
+                CredentialStatus::Stored
+                    | CredentialStatus::Environment
+                    | CredentialStatus::NotRequired
+            );
+        if credentials_ready {
+            match fetch_provider_models(definition, &base_url) {
+                Ok(next_models) => {
+                    verified_available = !next_models.is_empty();
+                    health.available = verified_available;
+                    health.detail = if verified_available {
+                        format!("{} models available.", next_models.len())
+                    } else {
+                        "Provider returned no usable models.".to_owned()
+                    };
+                    catalog_source = CatalogSource::Live;
+                    models = next_models;
+                    if models.is_empty()
+                        && matches!(definition.adapter, ProviderAdapter::Anthropic)
+                    {
+                        models = anthropic_fallback_models();
+                        catalog_source = CatalogSource::Fallback;
+                    }
+                }
+                Err(error) => {
+                    health.available = false;
+                    health.detail = provider_check_error(definition, &error);
+                    if definition.id == "codex" {
+                        models = codex_static_models();
+                        catalog_source = CatalogSource::Static;
+                    } else if matches!(definition.adapter, ProviderAdapter::Anthropic) {
+                        models = anthropic_fallback_models();
+                        catalog_source = CatalogSource::Fallback;
+                    }
+                }
             }
-            Err(error) => {
-                health.detail = error;
-            }
+        } else if credential_status != CredentialStatus::Unreadable {
+            health.detail = format!(
+                "No API key found for {}. Save your API key in Providers or import the legacy Keychain entry.",
+                definition.name
+            );
         }
+    } else if definition.id == "codex" {
+        models = codex_static_models();
+        catalog_source = CatalogSource::Static;
+    } else if matches!(definition.adapter, ProviderAdapter::Anthropic) {
+        models = anthropic_fallback_models();
+        catalog_source = CatalogSource::Fallback;
     }
 
     Ok(ProviderAdapterStatus {
@@ -413,6 +883,8 @@ fn status_for_definition(
         base_url,
         auth_mode: definition.auth_mode.to_owned(),
         credential_status,
+        catalog_source,
+        verified_available,
         health,
         models,
         capabilities: definition
@@ -421,6 +893,27 @@ fn status_for_definition(
             .map(|capability| (*capability).to_owned())
             .collect(),
     })
+}
+
+fn provider_check_error(definition: &ProviderDefinition, error: &str) -> String {
+    if error.contains("401") || error.contains("403") {
+        format!(
+            "{} rejected the saved API key. Replace it in Providers.",
+            definition.name
+        )
+    } else {
+        error.to_owned()
+    }
+}
+
+fn credential_status_text(status: CredentialStatus) -> &'static str {
+    match status {
+        CredentialStatus::NotRequired => "not-required",
+        CredentialStatus::Stored => "stored",
+        CredentialStatus::Environment => "environment",
+        CredentialStatus::Missing => "missing",
+        CredentialStatus::Unreadable => "unreadable",
+    }
 }
 
 fn xai_health(definition: &ProviderDefinition) -> ProviderHealth {
@@ -471,8 +964,9 @@ fn provider_health_unavailable(endpoint: &str, detail: String) -> ProviderHealth
 }
 
 fn grok_subscription_active() -> bool {
-    storage::home_database_path()
-        .and_then(|path| storage::load_app_settings(&path))
+    storage::resolve_database_path(None)
+        .ok()
+        .and_then(|path| storage::load_app_settings(&path).ok())
         .map(|settings| settings.grok_subscription_active)
         .unwrap_or(true)
 }
@@ -600,9 +1094,6 @@ fn fetch_anthropic_models(
             owned_by: model.display_name,
         })
         .collect::<Vec<_>>();
-    if models.is_empty() {
-        models = anthropic_fallback_models();
-    }
     models.sort_by(|left, right| left.id.cmp(&right.id));
     Ok(models)
 }
@@ -612,14 +1103,13 @@ fn fetch_codex_models(
     base_url: &str,
 ) -> Result<Vec<LocalModel>, String> {
     let mut models = codex_static_models();
-    if let Ok(api_models) = fetch_openai_compatible_models(definition, base_url) {
-        for model in api_models {
-            let id = model.id.to_lowercase();
-            if (id.contains("codex") || id.starts_with("gpt-5"))
-                && !models.iter().any(|entry| entry.id == model.id)
-            {
-                models.push(model);
-            }
+    let api_models = fetch_openai_compatible_models(definition, base_url)?;
+    for model in api_models {
+        let id = model.id.to_lowercase();
+        if (id.contains("codex") || id.starts_with("gpt-5"))
+            && !models.iter().any(|entry| entry.id == model.id)
+        {
+            models.push(model);
         }
     }
     models.sort_by(|left, right| left.id.cmp(&right.id));
@@ -711,6 +1201,7 @@ pub(crate) fn dispatch_provider_handoff(
 ) -> Result<(String, Option<String>), String> {
     let definition = find_definition(provider_id)?;
     let base_url = resolved_base_url(&definition);
+    verify_provider_model(&definition, &base_url, model_id)?;
     match definition.adapter {
         ProviderAdapter::OpenAiCompatible => dispatch_openai_compatible(
             &definition,
@@ -748,6 +1239,22 @@ pub(crate) fn build_provider_headers(
     definition: &ProviderDefinition,
 ) -> Result<Option<HeaderMap>, String> {
     provider_headers(definition)
+}
+
+pub(crate) fn verify_provider_model(
+    definition: &ProviderDefinition,
+    base_url: &str,
+    model_id: &str,
+) -> Result<(), String> {
+    let models = fetch_provider_models(definition, base_url)?;
+    if models.iter().any(|model| model.id == model_id) {
+        Ok(())
+    } else {
+        Err(format!(
+            "{} did not verify model {model_id}. Reload models before dispatch.",
+            definition.name
+        ))
+    }
 }
 
 pub(crate) fn uses_responses_api(definition: &ProviderDefinition, base_url: &str) -> bool {
@@ -995,7 +1502,7 @@ fn provider_headers(definition: &ProviderDefinition) -> Result<Option<HeaderMap>
     let Some(api_key) = resolve_api_key(definition)? else {
         if definition.key_env.is_some() {
             return Err(format!(
-                "No API key found for {}. Save your API key in the Providers tab, then click \"Always Allow\" when macOS asks for Keychain access.",
+                "No API key found for {}. Save your API key in the Providers tab.",
                 definition.name
             ));
         }
@@ -1021,74 +1528,32 @@ fn provider_headers(definition: &ProviderDefinition) -> Result<Option<HeaderMap>
     Ok(Some(headers))
 }
 
-fn credential_status(definition: &ProviderDefinition, probe_keychain: bool) -> String {
-    if definition.key_env.is_none() {
-        return "not-required".to_owned();
-    }
-    if definition
-        .key_env
-        .and_then(|name| env::var(name).ok())
-        .is_some_and(|value| !value.trim().is_empty())
-    {
-        return "environment".to_owned();
-    }
-    if probe_keychain {
-        // resolve_api_key checks memory cache first, then keychain once — no double read
-        if resolve_api_key(definition).is_ok_and(|key| key.is_some()) {
-            return "keychain".to_owned();
-        }
-        return "missing".to_owned();
-    }
-    if provider_credential_stored(definition.id) {
-        return "keychain".to_owned();
-    }
-    "missing".to_owned()
-}
-
-fn provider_credential_stored(provider_id: &str) -> bool {
-    storage::home_database_path()
-        .map(|path| storage::is_provider_credential_stored(&path, provider_id))
-        .unwrap_or(false)
-}
-
 fn resolve_api_key(definition: &ProviderDefinition) -> Result<Option<String>, String> {
     if definition.key_env.is_none() {
         return Ok(None);
     }
-    // 1. Memory cache — no keychain read if already resolved this session
-    if let Some(cached) = get_cached_api_key(definition.id) {
+    let slot = credential_slot_id(definition);
+    // 1. Memory cache — resolved earlier this session
+    if let Some(cached) = get_cached_api_key(slot) {
         return Ok(Some(cached));
     }
-    // 2. Keychain (30s timeout — enough time to enter the macOS password dialog)
-    if let Some(secret) = keychain_password(definition.id) {
-        cache_api_key(definition.id, &secret);
+    // 2. App-encrypted secret store (no OS prompt, stable across rebuilds)
+    if let Some(secret) = read_stored_secret(definition)? {
         return Ok(Some(secret));
     }
-    // 3. Env var fallback
-    Ok(definition
+    // 3. Environment variable fallback (dev override)
+    if let Some(env_key) = read_env_api_key(definition) {
+        cache_api_key(slot, &env_key);
+        return Ok(Some(env_key));
+    }
+    Ok(None)
+}
+
+fn read_env_api_key(definition: &ProviderDefinition) -> Option<String> {
+    definition
         .key_env
         .and_then(|name| env::var(name).ok())
         .filter(|value| !value.trim().is_empty())
-        .inspect(|key| cache_api_key(definition.id, key)))
-}
-
-fn keychain_password(provider_id: &str) -> Option<String> {
-    let (sender, receiver) = mpsc::channel();
-    let provider_id = provider_id.to_owned();
-    std::thread::spawn(move || {
-        let password = keychain_entry(&provider_id)
-            .ok()
-            .and_then(|entry| entry.get_password().ok())
-            .filter(|value| !value.trim().is_empty());
-        let _ = sender.send(password);
-    });
-
-    receiver.recv_timeout(KEYCHAIN_LOOKUP_TIMEOUT).ok().flatten()
-}
-
-fn keychain_entry(provider_id: &str) -> Result<Entry, String> {
-    Entry::new(KEYCHAIN_SERVICE, provider_id)
-        .map_err(|error| format!("failed to open Keychain entry: {error}"))
 }
 
 fn resolved_base_url(definition: &ProviderDefinition) -> String {
@@ -1272,7 +1737,28 @@ mod tests {
     #[test]
     fn keyless_provider_does_not_require_credentials() {
         let definition = find_definition("lm-studio").unwrap();
-        assert_eq!(credential_status(&definition, false), "not-required");
+        assert_eq!(
+            credential_state(&definition).status,
+            CredentialStatus::NotRequired
+        );
+    }
+
+    #[test]
+    fn openai_providers_share_one_secret_slot() {
+        let codex = find_definition("codex").unwrap();
+        let openai = find_definition("openai-compatible").unwrap();
+
+        assert_eq!(credential_slot_id(&codex), "openai");
+        assert_eq!(credential_slot_id(&openai), "openai");
+    }
+
+    #[test]
+    fn non_openai_providers_keep_distinct_secret_slots() {
+        let anthropic = find_definition("anthropic").unwrap();
+        let xai = find_definition("xai").unwrap();
+
+        assert_eq!(credential_slot_id(&anthropic), "anthropic");
+        assert_eq!(credential_slot_id(&xai), "xai");
     }
 
     #[test]
@@ -1295,10 +1781,187 @@ mod tests {
 
     #[test]
     fn codex_models_include_curated_defaults() {
-        let definition = find_definition("codex").unwrap();
-        let models = fetch_codex_models(&definition, "https://api.openai.com/v1").unwrap();
+        let models = codex_static_models();
         assert!(models.iter().any(|model| model.id == "gpt-5.5"));
         assert!(models.iter().any(|model| model.id == "codex-mini-latest"));
+    }
+
+    #[test]
+    fn stale_database_flag_does_not_report_stored_credentials() {
+        let dir = std::env::temp_dir().join(format!(
+            "agentdeck-stale-credential-{}",
+            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let database_path = dir.join("agentdeck.sqlite3");
+        let definition = find_definition("anthropic").unwrap();
+        storage::set_provider_credential_stored(&database_path, definition.id, true).unwrap();
+
+        let state = credential_state_at(&definition, Some(&database_path));
+
+        assert_eq!(state.status, CredentialStatus::Missing);
+        assert!(!storage::is_provider_credential_stored(
+            &database_path,
+            definition.id
+        ));
+        assert!(!dir.join("secret.key").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ciphertext_without_master_key_is_unreadable() {
+        let dir = std::env::temp_dir().join(format!(
+            "agentdeck-unreadable-credential-{}",
+            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let database_path = dir.join("agentdeck.sqlite3");
+        let definition = find_definition("anthropic").unwrap();
+        evict_cached_api_key(credential_slot_id(&definition));
+        storage::store_provider_secret(&database_path, "anthropic", "ciphertext").unwrap();
+
+        let state = credential_state_at(&definition, Some(&database_path));
+
+        assert_eq!(state.status, CredentialStatus::Unreadable);
+        assert!(state.error.unwrap().contains("master key"));
+        assert!(!dir.join("secret.key").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn shared_openai_secret_survives_restart_and_deletes_for_both_providers() {
+        let dir = std::env::temp_dir().join(format!(
+            "agentdeck-shared-secret-{}",
+            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let database_path = dir.join("agentdeck.sqlite3");
+        let openai = find_definition("openai-compatible").unwrap();
+        let codex = find_definition("codex").unwrap();
+
+        store_provider_secret(&database_path, &openai, "sk-shared-test").unwrap();
+        evict_cached_api_key("openai");
+        assert_eq!(
+            read_stored_secret_at(&database_path, &codex).unwrap(),
+            Some("sk-shared-test".to_owned())
+        );
+
+        delete_stored_secret(&database_path, &codex).unwrap();
+        assert_eq!(
+            read_stored_secret_at(&database_path, &openai).unwrap(),
+            None
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stored_secret_round_trips_through_resolve_database_path() {
+        let dir = std::env::temp_dir().join(format!(
+            "agentdeck-resolve-path-{}",
+            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let database_path = dir.join("agentdeck.sqlite3");
+        let definition = find_definition("xai").unwrap();
+
+        store_provider_secret(&database_path, &definition, "sk-roundtrip-test").unwrap();
+        evict_cached_api_key("xai");
+        assert_eq!(
+            read_stored_secret_at_path(Some(&database_path), &definition).unwrap(),
+            Some("sk-roundtrip-test".to_owned())
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn static_and_fallback_catalogs_are_not_verified_without_checks() {
+        let codex = status_for_definition(&find_definition("codex").unwrap(), false, None).unwrap();
+        assert_eq!(codex.catalog_source, CatalogSource::Static);
+        assert!(!codex.verified_available);
+        assert!(!codex.models.is_empty());
+
+        let anthropic =
+            status_for_definition(&find_definition("anthropic").unwrap(), false, None).unwrap();
+        assert_eq!(anthropic.catalog_source, CatalogSource::Fallback);
+        assert!(!anthropic.verified_available);
+        assert!(!anthropic.models.is_empty());
+    }
+
+    #[test]
+    fn legacy_import_deduplicates_shared_openai_entries() {
+        let (candidates, result) = collect_legacy_credentials(|account| {
+            Ok(match account {
+                "openai-compatible" | "codex" => Some("sk-shared".to_owned()),
+                _ => None,
+            })
+        });
+
+        assert_eq!(candidates.get("openai").map(String::as_str), Some("sk-shared"));
+        assert!(result.conflicts.is_empty());
+        assert!(result.errors.is_empty());
+        assert_eq!(
+            result
+                .outcomes
+                .iter()
+                .find(|outcome| outcome.slot_id == "openai")
+                .map(|outcome| outcome.status.as_str()),
+            Some("found")
+        );
+    }
+
+    #[test]
+    fn legacy_import_rejects_conflicting_openai_entries() {
+        let (candidates, result) = collect_legacy_credentials(|account| {
+            Ok(match account {
+                "openai-compatible" => Some("sk-first".to_owned()),
+                "codex" => Some("sk-second".to_owned()),
+                _ => None,
+            })
+        });
+
+        assert!(!candidates.contains_key("openai"));
+        assert_eq!(result.conflicts.len(), 1);
+        assert!(result
+            .outcomes
+            .iter()
+            .any(|outcome| outcome.slot_id == "openai" && outcome.status == "conflict"));
+    }
+
+    #[test]
+    fn legacy_import_reports_missing_and_denied_entries() {
+        let (candidates, result) = collect_legacy_credentials(|account| {
+            if account == "xai" {
+                Err("access denied".to_owned())
+            } else {
+                Ok(None)
+            }
+        });
+
+        assert!(candidates.is_empty());
+        assert!(result.missing.contains(&"Anthropic".to_owned()));
+        assert!(result.errors.iter().any(|error| error.contains("xAI")));
+        assert!(result
+            .outcomes
+            .iter()
+            .any(|outcome| outcome.slot_id == "xai" && outcome.status == "denied"));
+    }
+
+    #[test]
+    fn legacy_import_skips_slots_already_in_encrypted_store() {
+        let mut looked_up = Vec::new();
+        let (candidates, result) = collect_legacy_credentials_for_slots(
+            |account| {
+                looked_up.push(account.to_owned());
+                Ok(None)
+            },
+            |slot| slot != "xai",
+        );
+
+        assert!(candidates.is_empty());
+        assert!(!looked_up.iter().any(|account| account == "xai"));
+        assert!(result.outcomes.iter().any(|outcome| {
+            outcome.slot_id == "xai" && outcome.status == "already-imported"
+        }));
     }
 
     #[test]
@@ -1333,7 +1996,7 @@ mod tests {
     #[test]
     fn grok_status_reflects_credentials_and_health() {
         assert_eq!(grok_status_label("missing", true), "available");
-        assert_eq!(grok_status_label("keychain", true), "available");
+        assert_eq!(grok_status_label("stored", true), "available");
         assert_eq!(grok_status_label("environment", false), "degraded");
         assert_eq!(grok_status_label("missing", false), "unavailable");
     }
@@ -1347,7 +2010,7 @@ mod tests {
             detail: "HTTP 200".to_owned(),
         };
         let readiness = XaiReadiness {
-            credential_status: "keychain".to_owned(),
+            credential_status: "stored".to_owned(),
             subscription_active: true,
             health,
         };

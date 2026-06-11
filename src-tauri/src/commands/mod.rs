@@ -263,13 +263,13 @@ fn detect_known_configs() -> Vec<DetectedConfig> {
         .iter()
         .any(|folder| current.starts_with(home.join(folder)));
     let candidates = [
-        ("Codex", home.join(".codex/config.toml"), false),
-        ("Claude Code", home.join(".claude.json"), false),
-        ("Claude Code", home.join(".claude/settings.json"), false),
+        ("Codex", home.join(".codex/config.toml"), true),
+        ("Claude Code", home.join(".claude.json"), true),
+        ("Claude Code", home.join(".claude/settings.json"), true),
         ("Hermes", home.join(".hermes/config.yaml"), false),
-        ("Hermes", home.join(".hermes/config.json"), false),
-        ("OpenClaw", home.join(".openclaw/config.json"), false),
-        ("LM Studio", home.join(".lmstudio/mcp.json"), false),
+        ("Hermes", home.join(".hermes/config.json"), true),
+        ("OpenClaw", home.join(".openclaw/config.json"), true),
+        ("LM Studio", home.join(".lmstudio/mcp.json"), true),
         ("Project", current.join("AGENTS.md"), project_content_safe),
         (
             "Codex",
@@ -854,7 +854,7 @@ mod tests {
     #[test]
     fn normalized_entities_include_grok_source_agent() {
         let grok = providers::grok_source_agent(&providers::XaiReadiness {
-            credential_status: "keychain".to_owned(),
+            credential_status: "stored".to_owned(),
             subscription_active: true,
             health: ProviderHealth {
                 name: "xAI".to_owned(),

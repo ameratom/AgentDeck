@@ -144,10 +144,31 @@ pub struct ProviderAdapterStatus {
     pub kind: String,
     pub base_url: String,
     pub auth_mode: String,
-    pub credential_status: String,
+    pub credential_status: CredentialStatus,
+    pub catalog_source: CatalogSource,
+    pub verified_available: bool,
     pub health: ProviderHealth,
     pub models: Vec<LocalModel>,
     pub capabilities: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CredentialStatus {
+    NotRequired,
+    Stored,
+    Environment,
+    Missing,
+    Unreadable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CatalogSource {
+    None,
+    Live,
+    Static,
+    Fallback,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -161,6 +182,26 @@ pub struct ProviderCredentialRequest {
 #[serde(rename_all = "camelCase")]
 pub struct ProviderCheckRequest {
     pub provider_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LegacyCredentialImportResult {
+    pub imported: Vec<String>,
+    pub verified: Vec<String>,
+    pub missing: Vec<String>,
+    pub conflicts: Vec<String>,
+    pub errors: Vec<String>,
+    pub outcomes: Vec<LegacyCredentialImportOutcome>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LegacyCredentialImportOutcome {
+    pub slot_id: String,
+    pub label: String,
+    pub status: String,
+    pub detail: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

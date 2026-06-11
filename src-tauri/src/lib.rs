@@ -3,6 +3,7 @@ pub mod mcp_http;
 pub mod mcp_server;
 mod models;
 mod permissions;
+mod secrets;
 mod storage;
 mod tray;
 
@@ -51,6 +52,7 @@ pub fn run() {
             commands::providers::check_provider_adapter,
             commands::providers::save_provider_api_key,
             commands::providers::delete_provider_api_key,
+            commands::providers::import_legacy_provider_credentials,
             commands::handoffs::run_handoff,
             commands::handoffs::load_handoff_runs,
             commands::mcp::scan_mcp_inventory,
