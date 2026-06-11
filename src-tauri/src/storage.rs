@@ -49,6 +49,102 @@ pub fn open_database(path: &Path) -> Result<Connection, String> {
     Ok(connection)
 }
 
+pub(crate) const MAX_IDENTIFIER_CHARS: usize = 128;
+
+pub(crate) fn validate_identifier(label: &str, value: &str) -> Result<(), String> {
+    let length = value.chars().count();
+    if length == 0 || length > MAX_IDENTIFIER_CHARS {
+        return Err(format!(
+            "{label} must contain between 1 and {MAX_IDENTIFIER_CHARS} characters"
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn stable_hash(value: &str) -> u64 {
+    value
+        .as_bytes()
+        .iter()
+        .fold(0xcbf29ce484222325, |hash, byte| {
+            (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
+        })
+}
+
+pub fn load_handoff_run(connection: &Connection, run_id: &str) -> Result<HandoffRun, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT id, thread_id, source_agent_id, source_agent_name, target_provider_id,
+                    target_provider_name, target_model_id, title, task, context, status,
+                    output, error, approvals, audit_ref, created_at, updated_at
+             FROM handoff_runs
+             WHERE id = ?1",
+        )
+        .map_err(|error| format!("failed to prepare handoff run lookup: {error}"))?;
+    let mut rows = statement
+        .query([run_id])
+        .map_err(|error| format!("failed to load handoff run: {error}"))?;
+    let Some(row) = rows
+        .next()
+        .map_err(|error| format!("failed to iterate handoff run: {error}"))?
+    else {
+        return Err("handoff run was not found".to_owned());
+    };
+    let approvals: String = row
+        .get(13)
+        .map_err(|error| format!("failed to decode approvals: {error}"))?;
+    Ok(HandoffRun {
+        id: row
+            .get(0)
+            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
+        thread_id: row
+            .get(1)
+            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
+        source_agent_id: row
+            .get(2)
+            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
+        source_agent_name: row
+            .get(3)
+            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
+        target_provider_id: row
+            .get(4)
+            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
+        target_provider_name: row
+            .get(5)
+            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
+        target_model_id: row
+            .get(6)
+            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
+        title: row
+            .get(7)
+            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
+        task: row
+            .get(8)
+            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
+        context: row
+            .get(9)
+            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
+        status: row
+            .get(10)
+            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
+        output: row
+            .get(11)
+            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
+        error: row
+            .get(12)
+            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
+        approvals: serde_json::from_str::<Vec<String>>(&approvals).unwrap_or_default(),
+        audit_ref: row
+            .get(14)
+            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
+        created_at: row
+            .get(15)
+            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
+        updated_at: row
+            .get(16)
+            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
+    })
+}
+
 pub fn load_app_settings(path: &Path) -> Result<AppSettings, String> {
     let connection = open_database(path)?;
     Ok(AppSettings {
@@ -626,7 +722,7 @@ fn load_audit_events_page(
         .map_err(|error| format!("failed to decode audit events: {error}"))
 }
 
-fn map_audit_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AuditEventRecord> {
+pub(crate) fn map_audit_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AuditEventRecord> {
     Ok(AuditEventRecord {
         id: row.get(0)?,
         action: row.get(1)?,
@@ -758,6 +854,18 @@ fn redact_text(value: &str) -> String {
         return "[redacted]".to_owned();
     }
     value.to_owned()
+}
+
+#[cfg(test)]
+mod storage_tests {
+    use super::*;
+
+    #[test]
+    fn validate_identifier_rejects_overlong_values() {
+        let value = "a".repeat(MAX_IDENTIFIER_CHARS + 1);
+        assert!(validate_identifier("test ID", &value).is_err());
+        assert!(validate_identifier("test ID", &"a".repeat(MAX_IDENTIFIER_CHARS)).is_ok());
+    }
 }
 
 fn migration_applied(connection: &Connection, version: i64) -> Result<bool, String> {

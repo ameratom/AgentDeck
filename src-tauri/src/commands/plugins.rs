@@ -151,11 +151,11 @@ pub(crate) fn execute_skill_pipeline(
     let created_at = Utc::now();
     let execution_id = format!(
         "skill-run:{:016x}",
-        stable_hash(&format!("{skill_id}:{created_at}"))
+        storage::stable_hash(&format!("{skill_id}:{created_at}"))
     );
     let audit_ref = format!(
         "audit:{:016x}",
-        stable_hash(&format!("skill.execute:{skill_id}:{created_at}"))
+        storage::stable_hash(&format!("skill.execute:{skill_id}:{created_at}"))
     );
 
     let (status, output, audit_status) = match dispatch_result {
@@ -404,14 +404,7 @@ fn validate_id(label: &str, value: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn stable_hash(value: &str) -> u64 {
-    value
-        .as_bytes()
-        .iter()
-        .fold(0xcbf29ce484222325, |hash, byte| {
-            (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
-        })
-}
+
 
 #[cfg(test)]
 mod tests {

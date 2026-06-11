@@ -144,7 +144,7 @@ pub async fn load_chat_messages(
     app: AppHandle,
     conversation_id: String,
 ) -> Result<Vec<ChatMessage>, String> {
-    validate_identifier("conversation ID", &conversation_id)?;
+    storage::validate_identifier("conversation ID", &conversation_id)?;
     let database_path = database_path(&app)?;
 
     tauri::async_runtime::spawn_blocking(move || load_messages(&database_path, &conversation_id))
@@ -244,7 +244,7 @@ fn store_message(
     let created_at = Utc::now().to_rfc3339();
     let id = format!(
         "message:{:016x}",
-        stable_hash(&format!("{conversation_id}:{role}:{created_at}:{content}"))
+        storage::stable_hash(&format!("{conversation_id}:{role}:{created_at}:{content}"))
     );
     connection
         .execute(
@@ -304,7 +304,7 @@ fn store_audit_event(
     let created_at = Utc::now();
     let id = format!(
         "audit:{:016x}",
-        stable_hash(&format!("{action}:{conversation_id}:{created_at}"))
+        storage::stable_hash(&format!("{action}:{conversation_id}:{created_at}"))
     );
     connection
         .execute(
@@ -339,9 +339,9 @@ fn store_audit_event(
 }
 
 fn validate_chat_request(request: &ChatRequest) -> Result<(), String> {
-    validate_identifier("conversation ID", &request.conversation_id)?;
-    validate_identifier("provider ID", &request.provider_id)?;
-    validate_identifier("model", &request.model)?;
+    storage::validate_identifier("conversation ID", &request.conversation_id)?;
+    storage::validate_identifier("provider ID", &request.provider_id)?;
+    storage::validate_identifier("model", &request.model)?;
     providers::find_provider(&request.provider_id)?;
     if request.messages.is_empty() || request.messages.len() > MAX_MESSAGES {
         return Err(format!(
@@ -368,23 +368,6 @@ fn validate_chat_request(request: &ChatRequest) -> Result<(), String> {
         ));
     }
     Ok(())
-}
-
-fn validate_identifier(label: &str, value: &str) -> Result<(), String> {
-    let length = value.chars().count();
-    if length == 0 || length > 256 {
-        return Err(format!("{label} must contain between 1 and 256 characters"));
-    }
-    Ok(())
-}
-
-fn stable_hash(value: &str) -> u64 {
-    value
-        .as_bytes()
-        .iter()
-        .fold(0xcbf29ce484222325, |hash, byte| {
-            (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
-        })
 }
 
 #[cfg(test)]

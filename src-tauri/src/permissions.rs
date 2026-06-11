@@ -68,7 +68,6 @@ pub fn require_permission(
     agent_id: &str,
     action: &str,
 ) -> Result<(), String> {
-    seed_default_permissions(connection)?;
     validate_agent_id(agent_id)?;
     validate_action(action)?;
     let allowed: i64 = connection
@@ -91,7 +90,6 @@ pub fn permission_allowed(
     agent_id: &str,
     action: &str,
 ) -> Result<bool, String> {
-    seed_default_permissions(connection)?;
     validate_agent_id(agent_id)?;
     validate_action(action)?;
     let result = connection.query_row(
@@ -106,6 +104,7 @@ pub fn permission_allowed(
     }
 }
 
+// New agent IDs should be seeded via migration or load_agent_permissions, not per-check.
 fn seed_default_permissions(connection: &Connection) -> Result<(), String> {
     for agent_id in DEFAULT_AGENT_IDS {
         for action in PERMISSION_ACTIONS {
@@ -191,6 +190,18 @@ mod tests {
         assert!(permissions.iter().any(|entry| {
             entry.agent_id == "agent:lm-studio" && entry.action == "dispatch-handoff" && entry.allow
         }));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn require_permission_works_after_migration_without_reseeding() {
+        let path = std::env::temp_dir().join(format!(
+            "agentdeck-permissions-require-{}.sqlite3",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        let connection = storage::open_database(&path).expect("open database");
+        require_permission(&connection, "agent:codex", "dispatch-handoff")
+            .expect("codex should dispatch after migration seed");
         let _ = std::fs::remove_file(path);
     }
 

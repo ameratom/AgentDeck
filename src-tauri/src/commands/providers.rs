@@ -727,25 +727,79 @@ pub(crate) fn uses_responses_api(definition: &ProviderDefinition, base_url: &str
 }
 
 fn dispatch_claude_code(prompt: &str) -> Result<(String, Option<String>), String> {
+    use std::io::Read;
     use std::process::{Command, Stdio};
+    use std::thread;
+    use std::time::{Duration, Instant};
 
-    let output = Command::new("claude")
+    const TIMEOUT: Duration = Duration::from_secs(120);
+
+    let mut child = Command::new("claude")
         .args(["-p", prompt])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .output()
+        .spawn()
         .map_err(|error| format!("failed to launch Claude Code: {error}"))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "failed to capture Claude Code stdout".to_owned())?;
+    let mut stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "failed to capture Claude Code stderr".to_owned())?;
+
+    let stdout_handle = thread::spawn(move || {
+        let mut buffer = Vec::new();
+        stdout
+            .read_to_end(&mut buffer)
+            .map(|_| buffer)
+            .map_err(|error| format!("failed to read Claude Code stdout: {error}"))
+    });
+    let stderr_handle = thread::spawn(move || {
+        let mut buffer = Vec::new();
+        stderr
+            .read_to_end(&mut buffer)
+            .map(|_| buffer)
+            .map_err(|error| format!("failed to read Claude Code stderr: {error}"))
+    });
+
+    let started = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if started.elapsed() >= TIMEOUT {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err("Claude Code subprocess timed out after 120s".to_owned());
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
+            Err(error) => {
+                return Err(format!("failed while waiting for Claude Code: {error}"));
+            }
+        }
+    };
+
+    let stdout_bytes = stdout_handle
+        .join()
+        .map_err(|_| "failed to join Claude Code stdout reader".to_owned())??;
+    let stderr_bytes = stderr_handle
+        .join()
+        .map_err(|_| "failed to join Claude Code stderr reader".to_owned())??;
+
+    if !status.success() {
+        let stderr = String::from_utf8_lossy(&stderr_bytes);
         return Err(format!(
             "Claude Code exited with status {}: {}",
-            output.status,
+            status,
             stderr.trim()
         ));
     }
 
-    let content = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    let content = String::from_utf8_lossy(&stdout_bytes).trim().to_owned();
     if content.is_empty() {
         return Err("Claude Code returned an empty response".to_owned());
     }
@@ -890,7 +944,7 @@ fn dispatch_anthropic(
                 role: "user",
                 content: &format!("Task:\n{task}\n\nContext:\n{context}\n\n{prompt}"),
             }],
-            max_tokens: 1024,
+            max_tokens: 4096,
         })
         .send()
         .map_err(|error| format!("handoff dispatch failed: {error}"))?
@@ -1116,7 +1170,7 @@ fn store_provider_audit(
     let created_at = Utc::now();
     let id = format!(
         "audit:{:016x}",
-        stable_hash(&format!("{action}:{provider_id}:{created_at}"))
+        storage::stable_hash(&format!("{action}:{provider_id}:{created_at}"))
     );
     connection
         .execute(
@@ -1150,14 +1204,7 @@ fn store_provider_audit(
     Ok(())
 }
 
-fn stable_hash(value: &str) -> u64 {
-    value
-        .as_bytes()
-        .iter()
-        .fold(0xcbf29ce484222325, |hash, byte| {
-            (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
-        })
-}
+
 
 #[cfg(test)]
 mod tests {

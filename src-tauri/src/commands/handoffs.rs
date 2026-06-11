@@ -39,7 +39,7 @@ pub(crate) fn dispatch_handoff(path: &Path, request: HandoffRequest) -> Result<H
         return Err("Handoff requires explicit approval before dispatch".to_owned());
     }
 
-    let connection = open_database(&path)?;
+    let connection = storage::open_database(path)?;
     permissions::require_permission(&connection, &request.source_agent_id, "dispatch-handoff")?;
     let started_at = Utc::now();
     let run_id = run_identifier(&request, started_at);
@@ -102,7 +102,7 @@ pub(crate) fn dispatch_handoff(path: &Path, request: HandoffRequest) -> Result<H
                 None,
                 Some(&audit_ref),
             )?;
-            let run = load_run(&connection, &run_id)?;
+            let run = storage::load_handoff_run(&connection, &run_id)?;
             let _ = finish_reason;
             Ok(run)
         }
@@ -124,7 +124,7 @@ pub(crate) fn dispatch_handoff(path: &Path, request: HandoffRequest) -> Result<H
                 Some(&error),
                 Some(&audit_ref),
             )?;
-            let run = load_run(&connection, &run_id)?;
+            let run = storage::load_handoff_run(&connection, &run_id)?;
             Ok(run)
         }
     }
@@ -135,7 +135,7 @@ pub(crate) fn load_recent_runs(path: &Path, limit: usize) -> Result<Vec<HandoffR
 }
 
 fn load_runs(path: &Path, limit: usize) -> Result<Vec<HandoffRun>, String> {
-    let connection = open_database(path)?;
+    let connection = storage::open_database(path)?;
     let mut statement = connection
         .prepare(
             "SELECT id, thread_id, source_agent_id, source_agent_name, target_provider_id,
@@ -176,81 +176,6 @@ fn load_runs(path: &Path, limit: usize) -> Result<Vec<HandoffRun>, String> {
         .map_err(|error| format!("failed to decode handoff runs: {error}"))
 }
 
-fn load_run(connection: &Connection, run_id: &str) -> Result<HandoffRun, String> {
-    let mut statement = connection
-        .prepare(
-            "SELECT id, thread_id, source_agent_id, source_agent_name, target_provider_id,
-                    target_provider_name, target_model_id, title, task, context, status,
-                    output, error, approvals, audit_ref, created_at, updated_at
-             FROM handoff_runs
-             WHERE id = ?1",
-        )
-        .map_err(|error| format!("failed to prepare handoff run lookup: {error}"))?;
-    let mut rows = statement
-        .query([run_id])
-        .map_err(|error| format!("failed to load handoff run: {error}"))?;
-    let Some(row) = rows
-        .next()
-        .map_err(|error| format!("failed to iterate handoff run: {error}"))?
-    else {
-        return Err("handoff run was not found".to_owned());
-    };
-    let approvals: String = row
-        .get(13)
-        .map_err(|error| format!("failed to decode approvals: {error}"))?;
-    Ok(HandoffRun {
-        id: row
-            .get(0)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        thread_id: row
-            .get(1)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        source_agent_id: row
-            .get(2)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        source_agent_name: row
-            .get(3)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        target_provider_id: row
-            .get(4)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        target_provider_name: row
-            .get(5)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        target_model_id: row
-            .get(6)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        title: row
-            .get(7)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        task: row
-            .get(8)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        context: row
-            .get(9)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        status: row
-            .get(10)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        output: row
-            .get(11)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        error: row
-            .get(12)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        approvals: serde_json::from_str::<Vec<String>>(&approvals).unwrap_or_default(),
-        audit_ref: row
-            .get(14)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        created_at: row
-            .get(15)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        updated_at: row
-            .get(16)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-    })
-}
-
 fn update_run(
     connection: &Connection,
     run_id: &str,
@@ -271,10 +196,6 @@ fn update_run(
     Ok(())
 }
 
-fn open_database(path: &Path) -> Result<Connection, String> {
-    storage::open_database(path)
-}
-
 fn store_audit_event(
     path: &Path,
     connection: &Connection,
@@ -287,7 +208,7 @@ fn store_audit_event(
     let created_at = Utc::now();
     let id = format!(
         "audit:{:016x}",
-        stable_hash(&format!("{action}:{conversation_id}:{created_at}"))
+        storage::stable_hash(&format!("{action}:{conversation_id}:{created_at}"))
     );
     connection
         .execute(
@@ -329,22 +250,14 @@ fn validate_handoff_request(request: &HandoffRequest) -> Result<(), String> {
     if request.approvals.is_empty() {
         return Err("Handoff requires explicit approval before dispatch".to_owned());
     }
-    validate_identifier("source agent ID", &request.source_agent_id)?;
-    validate_identifier("source agent name", &request.source_agent_name)?;
-    validate_identifier("target provider ID", &request.target_provider_id)?;
-    validate_identifier("target provider name", &request.target_provider_name)?;
-    validate_identifier("target model ID", &request.target_model_id)?;
+    storage::validate_identifier("source agent ID", &request.source_agent_id)?;
+    storage::validate_identifier("source agent name", &request.source_agent_name)?;
+    storage::validate_identifier("target provider ID", &request.target_provider_id)?;
+    storage::validate_identifier("target provider name", &request.target_provider_name)?;
+    storage::validate_identifier("target model ID", &request.target_model_id)?;
     validate_text("title", &request.title)?;
     validate_text("task", &request.task)?;
     validate_optional_text("context", &request.context)?;
-    Ok(())
-}
-
-fn validate_identifier(label: &str, value: &str) -> Result<(), String> {
-    let length = value.chars().count();
-    if length == 0 || length > 128 {
-        return Err(format!("{label} must contain between 1 and 128 characters"));
-    }
     Ok(())
 }
 
@@ -390,20 +303,11 @@ fn thread_identifier(request: &HandoffRequest) -> String {
 fn run_identifier(request: &HandoffRequest, started_at: chrono::DateTime<Utc>) -> String {
     format!(
         "run:{:016x}",
-        stable_hash(&format!(
+        storage::stable_hash(&format!(
             "{}:{}:{}:{}",
             request.source_agent_id, request.target_provider_id, request.title, started_at
         ))
     )
-}
-
-fn stable_hash(value: &str) -> u64 {
-    value
-        .as_bytes()
-        .iter()
-        .fold(0xcbf29ce484222325, |hash, byte| {
-            (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
-        })
 }
 
 #[cfg(test)]

@@ -190,7 +190,7 @@ fn candidate(client: &'static str, path: PathBuf) -> SourceCandidate {
 
 fn inspect_source(candidate: &SourceCandidate) -> (McpConfigSource, Vec<McpServerDefinition>) {
     let path_text = candidate.path.to_string_lossy().into_owned();
-    let id = format!("mcp-source:{:016x}", stable_hash(&path_text));
+    let id = format!("mcp-source:{:016x}", storage::stable_hash(&path_text));
     let mut source = McpConfigSource {
         id,
         client: candidate.client.to_owned(),
@@ -358,7 +358,7 @@ fn normalize_server(
     let identity = format!("{client}:{source}:{name}");
 
     Some(McpServerDefinition {
-        id: format!("mcp-server:{:016x}", stable_hash(&identity)),
+        id: format!("mcp-server:{:016x}", storage::stable_hash(&identity)),
         name: sanitize_text(name),
         client: client.to_owned(),
         transport,
@@ -529,14 +529,7 @@ fn safe_error(value: &str) -> String {
     sanitize_text(value.lines().next().unwrap_or("MCP config error"))
 }
 
-fn stable_hash(value: &str) -> u64 {
-    value
-        .as_bytes()
-        .iter()
-        .fold(0xcbf29ce484222325, |hash, byte| {
-            (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
-        })
-}
+
 
 #[cfg(test)]
 mod tests {

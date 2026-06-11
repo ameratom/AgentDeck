@@ -206,7 +206,7 @@ fn handle_tool_call(params: Option<Value>, request_id: Option<Value>) -> Result<
 pub fn execute_agentdeck_tool(tool_name: &str, arguments: Value) -> Result<String, String> {
     let caller = caller_agent_id(&arguments);
     let database_path = database_path()?;
-    let connection = open_database(&database_path)?;
+    let connection = storage::open_database(&database_path)?;
     permissions::require_permission(&connection, &caller, "call-mcp-tool")?;
 
     let value = match tool_name {
@@ -226,11 +226,11 @@ pub fn execute_agentdeck_tool(tool_name: &str, arguments: Value) -> Result<Strin
             .map_err(|error| format!("failed to serialize handoff run: {error}"))?,
         "agentdeck.search_audit_log" => serde_json::to_value(search_audit_log(arguments)?)
             .map_err(|error| format!("failed to serialize audit search: {error}"))?,
-        "agentdeck.dispatch_handoff" => {
-            permissions::require_permission(&connection, &caller, "dispatch-handoff")?;
-            serde_json::to_value(dispatch_handoff_tool(&database_path, arguments)?)
-                .map_err(|error| format!("failed to serialize handoff result: {error}"))?
-        }
+        "agentdeck.dispatch_handoff" => serde_json::to_value(dispatch_handoff_tool(
+            &database_path,
+            arguments,
+        )?)
+        .map_err(|error| format!("failed to serialize handoff result: {error}"))?,
         "agentdeck.execute_skill" => {
             permissions::require_permission(&connection, &caller, "execute-skill")?;
             serde_json::to_value(execute_skill_tool(&database_path, arguments)?)
@@ -266,7 +266,7 @@ fn execute_skill_tool(path: &Path, arguments: Value) -> Result<SkillExecutionRec
         .get("skillId")
         .and_then(Value::as_str)
         .ok_or_else(|| "skillId is required".to_owned())?;
-    validate_identifier("skill ID", skill_id)?;
+    storage::validate_identifier("skill ID", skill_id)?;
     plugins::execute_skill_pipeline(path, skill_id)
 }
 
@@ -279,7 +279,7 @@ fn toggle_mcp_server_tool(arguments: Value) -> Result<McpToggleResult, String> {
         .get("enabled")
         .and_then(Value::as_bool)
         .ok_or_else(|| "enabled is required".to_owned())?;
-    validate_identifier("server ID", server_id)?;
+    storage::validate_identifier("server ID", server_id)?;
     mcp::toggle_server_config(server_id, enabled)
 }
 
@@ -295,37 +295,7 @@ fn tool_content_from_text(text: &str) -> Value {
     })
 }
 
-fn tool_content<T: Serialize>(value: T) -> Value {
-    let text = serde_json::to_string_pretty(&value).unwrap_or_else(|error| {
-        format!(
-            "{{\"error\":\"failed to serialize tool result\",\"detail\":\"{}\"}}",
-            error
-        )
-    });
-    json!({
-        "content": [
-            {
-                "type": "text",
-                "text": text,
-            }
-        ],
-        "isError": false,
-    })
-}
 
-fn tool_content_result<T: Serialize>(
-    request_id: Option<Value>,
-    result: Result<T, String>,
-) -> Result<Value, Value> {
-    result.map(tool_content).map_err(|message| {
-        jsonrpc_error(
-            request_id,
-            -32603,
-            "Internal error",
-            Some(json!({ "message": message })),
-        )
-    })
-}
 
 fn tools_list() -> Vec<Value> {
     vec![
@@ -620,9 +590,9 @@ fn get_run(arguments: Value) -> Result<Value, String> {
         .get("runId")
         .and_then(Value::as_str)
         .ok_or_else(|| "runId is required".to_owned())?;
-    validate_identifier("run ID", run_id)?;
-    let connection = open_database(&database_path()?)?;
-    let run = load_run(&connection, run_id)?;
+    storage::validate_identifier("run ID", run_id)?;
+    let connection = storage::open_database(&database_path()?)?;
+    let run = storage::load_handoff_run(&connection, run_id)?;
     Ok(json!({ "run": run }))
 }
 
@@ -638,87 +608,12 @@ fn search_audit_log(arguments: Value) -> Result<Value, String> {
         .and_then(Value::as_u64)
         .unwrap_or(20)
         .clamp(1, MAX_SEARCH_LIMIT as u64) as usize;
-    let connection = open_database(&database_path()?)?;
+    let connection = storage::open_database(&database_path()?)?;
     let records = load_audit_events(&connection, &query, limit)?;
     Ok(json!({
         "records": records,
         "count": records.len()
     }))
-}
-
-fn load_run(connection: &Connection, run_id: &str) -> Result<HandoffRun, String> {
-    let mut statement = connection
-        .prepare(
-            "SELECT id, thread_id, source_agent_id, source_agent_name, target_provider_id,
-                    target_provider_name, target_model_id, title, task, context, status,
-                    output, error, approvals, audit_ref, created_at, updated_at
-             FROM handoff_runs
-             WHERE id = ?1",
-        )
-        .map_err(|error| format!("failed to prepare handoff run lookup: {error}"))?;
-    let mut rows = statement
-        .query([run_id])
-        .map_err(|error| format!("failed to load handoff run: {error}"))?;
-    let Some(row) = rows
-        .next()
-        .map_err(|error| format!("failed to iterate handoff run: {error}"))?
-    else {
-        return Err("handoff run was not found".to_owned());
-    };
-    let approvals: String = row
-        .get(13)
-        .map_err(|error| format!("failed to decode approvals: {error}"))?;
-    Ok(HandoffRun {
-        id: row
-            .get(0)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        thread_id: row
-            .get(1)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        source_agent_id: row
-            .get(2)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        source_agent_name: row
-            .get(3)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        target_provider_id: row
-            .get(4)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        target_provider_name: row
-            .get(5)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        target_model_id: row
-            .get(6)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        title: row
-            .get(7)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        task: row
-            .get(8)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        context: row
-            .get(9)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        status: row
-            .get(10)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        output: row
-            .get(11)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        error: row
-            .get(12)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        approvals: serde_json::from_str::<Vec<String>>(&approvals).unwrap_or_default(),
-        audit_ref: row
-            .get(14)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        created_at: row
-            .get(15)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        updated_at: row
-            .get(16)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-    })
 }
 
 fn load_audit_events(
@@ -753,29 +648,17 @@ fn load_audit_events(
 
     let rows = if query.is_empty() {
         statement
-            .query_map([limit as i64], map_audit_row)
+            .query_map([limit as i64], storage::map_audit_row)
             .map_err(|error| format!("failed to load audit events: {error}"))?
     } else {
         let pattern = format!("%{query}%");
         statement
-            .query_map(params![pattern, limit as i64], map_audit_row)
+            .query_map(params![pattern, limit as i64], storage::map_audit_row)
             .map_err(|error| format!("failed to load audit events: {error}"))?
     };
 
     rows.collect::<Result<Vec<_>, _>>()
         .map_err(|error| format!("failed to decode audit events: {error}"))
-}
-
-fn map_audit_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AuditEventRecord> {
-    Ok(AuditEventRecord {
-        id: row.get(0)?,
-        action: row.get(1)?,
-        status: row.get(2)?,
-        model: row.get(3)?,
-        conversation_id: row.get(4)?,
-        duration_ms: row.get(5)?,
-        created_at: row.get(6)?,
-    })
 }
 
 fn database_path() -> Result<PathBuf, String> {
@@ -789,18 +672,6 @@ pub fn internal_error_response(id: Option<Value>, message: &str) -> Value {
         "Internal error",
         Some(json!({ "message": message })),
     )
-}
-
-fn open_database(path: &Path) -> Result<Connection, String> {
-    storage::open_database(path)
-}
-
-fn validate_identifier(label: &str, value: &str) -> Result<(), String> {
-    let length = value.chars().count();
-    if length == 0 || length > 256 {
-        return Err(format!("{label} must contain between 1 and 256 characters"));
-    }
-    Ok(())
 }
 
 fn jsonrpc_result(id: Value, result: Value) -> Value {

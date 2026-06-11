@@ -23,6 +23,7 @@ use crate::models::{
     DetectedConfig, DetectedProcess, DiscoveredEntity, EnvironmentScan, PreflightResult,
     ProviderHealth, ToolStatus,
 };
+use crate::storage;
 
 const TOOL_NAMES: [&str; 17] = [
     "node", "npx", "pnpm", "npm", "rustc", "cargo", "git", "python", "python3", "uvx", "codex",
@@ -291,7 +292,7 @@ fn detect_known_configs() -> Vec<DetectedConfig> {
 
 fn inspect_config(kind: &str, path: &Path, parse_content: bool) -> DetectedConfig {
     let path_text = path.to_string_lossy().into_owned();
-    let id = format!("config:{:016x}", stable_hash(&path_text));
+    let id = format!("config:{:016x}", storage::stable_hash(&path_text));
     let format = config_format(path);
     let mut config = DetectedConfig {
         id,
@@ -654,7 +655,7 @@ fn provider_entity_id(provider: &ProviderHealth) -> String {
     format!(
         "provider:{}:{:016x}",
         provider_identifier(provider),
-        stable_hash(&provider.endpoint)
+        storage::stable_hash(&provider.endpoint)
     )
 }
 
@@ -694,14 +695,7 @@ fn insert_some(metadata: &mut BTreeMap<String, String>, key: &str, value: Option
     }
 }
 
-fn stable_hash(value: &str) -> u64 {
-    value
-        .as_bytes()
-        .iter()
-        .fold(0xcbf29ce484222325, |hash, byte| {
-            (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
-        })
-}
+
 
 fn truncate(value: &str, max_chars: usize) -> String {
     let mut chars = value.chars();
@@ -764,12 +758,12 @@ mod tests {
     #[test]
     fn stable_ids_are_repeatable() {
         assert_eq!(
-            stable_hash("/tmp/config.json"),
-            stable_hash("/tmp/config.json")
+            storage::stable_hash("/tmp/config.json"),
+            storage::stable_hash("/tmp/config.json")
         );
         assert_ne!(
-            stable_hash("/tmp/config.json"),
-            stable_hash("/tmp/other.json")
+            storage::stable_hash("/tmp/config.json"),
+            storage::stable_hash("/tmp/other.json")
         );
     }
 
