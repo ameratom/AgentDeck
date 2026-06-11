@@ -1,0 +1,73 @@
+plugins:
+  - id: agentdeck-plugin-codex
+    name: Codex
+    description: Local Codex integration for inventory, project context, and handoffs.
+    category: agent
+    capabilities:
+      - agent inventory
+      - handoff target
+      - repo context
+  - id: agentdeck-plugin-claude-code
+    name: Claude Code
+    description: Claude Code integration for project-aware handoffs and review workflows.
+    category: agent
+    capabilities:
+      - agent inventory
+      - handoff target
+      - code review
+  - id: agentdeck-plugin-lmstudio
+    name: LM Studio
+    description: Local OpenAI-compatible model provider integration.
+    category: provider
+    capabilities:
+      - local chat
+      - model inventory
+  - id: agentdeck-plugin-xai
+    name: xAI
+    description: Cloud provider integration for xAI-compatible model workflows.
+    category: provider
+    capabilities:
+      - cloud chat
+      - model inventory
+  - id: agentdeck-plugin-hermes
+    name: Hermes
+    description: Hermes automation integration for monitoring and delegated local tasks.
+    category: agent
+    capabilities:
+      - monitoring
+      - handoff target
+  - id: agentdeck-plugin-openclaw
+    name: OpenClaw
+    description: OpenClaw integration placeholder for local agent discovery and handoffs.
+    category: agent
+    capabilities:
+      - agent inventory
+      - handoff target
+  - id: agentdeck-plugin-mcp-inspector
+    name: MCP Inspector
+    description: Read-only MCP inspection helpers for config review and diagnostics.
+    category: tooling
+    capabilities:
+      - mcp inventory
+      - risk review
+  - id: agentdeck-plugin-webhooks
+    name: Webhooks
+    description: Local-first webhook adapter placeholder for explicit outbound handoffs.
+    category: integration
+    capabilities:
+      - manual dispatch
+      - audit logging
+  - id: agentdeck-plugin-git-projects
+    name: Git Projects
+    description: Project discovery and repository summary workflows.
+    category: project
+    capabilities:
+      - project inventory
+      - repo summary
+  - id: agentdeck-plugin-browser-tools
+    name: Browser Tools
+    description: Browser-assisted diagnostics and local app verification workflows.
+    category: tooling
+    capabilities:
+      - browser diagnostics
+      - app verification

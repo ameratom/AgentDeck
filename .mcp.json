@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "agentdeck": {
+      "type": "http",
+      "url": "http://127.0.0.1:7823/mcp"
+    },
+    "grok-mcp": {
+      "command": "/Users/claudemccready/Desktop/Scripts/Codex/AgentDeck/scripts/grok-mcp-launcher.sh",
+      "args": []
+    }
+  }
+}

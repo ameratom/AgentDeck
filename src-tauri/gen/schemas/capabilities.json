@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Core capability for the AgentDeck main window","local":true,"windows":["main"],"permissions":["core:default"]}}

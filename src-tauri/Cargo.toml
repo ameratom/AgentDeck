@@ -1,0 +1,33 @@
+[package]
+name = "agentdeck"
+version = "0.1.0"
+description = "Local-first control plane for AI agents"
+authors = ["AgentDeck"]
+edition = "2021"
+
+[lib]
+name = "agentdeck_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "stream"] }
+futures-util = "0.3"
+axum = "0.8"
+tower = "0.5"
+keyring = { version = "3", features = ["apple-native"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+sysinfo = "0.37"
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "process", "io-util"] }
+toml = "0.9"
+
+
+[profile.dev]
+incremental = true

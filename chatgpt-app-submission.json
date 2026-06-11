@@ -1,0 +1,188 @@
+{
+  "$schema": "https://developers.openai.com/apps-sdk/schemas/chatgpt-app-submission.v1.json",
+  "schema_version": 1,
+  "app_info": {
+    "display_name": "AgentDeck",
+    "subtitle": "Local agent control",
+    "description": "AgentDeck helps users inspect a local AI agent workspace from ChatGPT by scanning installed tools, providers, running processes, MCP configuration, graph relationships, handoff runs, and audit events without modifying external configurations.",
+    "category": "DEVELOPER_TOOLS"
+  },
+  "tools": {
+    "agentdeck.scan_environment": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Only inspects local tools, providers, processes, configs, and normalized entities without changing them.",
+        "open_world_justification": "Does not publish, send, or modify public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "agentdeck.get_graph": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Builds and returns a graph snapshot from the current local environment scan without writing data.",
+        "open_world_justification": "Does not publish, send, or modify public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "agentdeck.list_agents": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Filters the current local environment scan to return discovered agents without modifying any agent state.",
+        "open_world_justification": "Does not publish, send, or modify public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "agentdeck.list_mcp_servers": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads local MCP configuration inventory and risk metadata without starting or modifying configured servers.",
+        "open_world_justification": "Does not publish, send, or modify public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "agentdeck.health_check": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Runs local readiness checks and returns status without changing tools, providers, or configuration.",
+        "open_world_justification": "Does not publish, send, or modify public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "agentdeck.get_run": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Fetches one stored handoff run from the local AgentDeck database without updating it.",
+        "open_world_justification": "Does not publish, send, or modify public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "agentdeck.search_audit_log": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Searches local audit event records and returns recent matches without updating the audit log.",
+        "open_world_justification": "Does not publish, send, or modify public internet state or third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    }
+  },
+  "test_cases": [
+    {
+      "description": "Inspect the current local AgentDeck environment.",
+      "user_prompt": "Scan my AgentDeck environment and summarize which agents, providers, and tools are available.",
+      "file_attachment_urls": null,
+      "tools_triggered": "agentdeck.scan_environment",
+      "expected_output": "Returns a concise summary of discovered local agents, providers, processes, configs, and tool availability.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Explain the local agent relationship graph.",
+      "user_prompt": "Show me how my local agents, providers, tools, and configs are connected.",
+      "file_attachment_urls": null,
+      "tools_triggered": "agentdeck.get_graph",
+      "expected_output": "Returns graph nodes and edges with a readable explanation of the relationships.",
+      "expected_output_url": null
+    },
+    {
+      "description": "List local source agents for handoff planning.",
+      "user_prompt": "Which source agents does AgentDeck currently see for handoffs?",
+      "file_attachment_urls": null,
+      "tools_triggered": "agentdeck.list_agents",
+      "expected_output": "Returns the discovered local agents, their statuses, and enough context to choose a source agent.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Review configured MCP servers without starting them.",
+      "user_prompt": "Audit my local MCP server configs and call out risky or missing server definitions.",
+      "file_attachment_urls": null,
+      "tools_triggered": "agentdeck.list_mcp_servers",
+      "expected_output": "Returns configured MCP servers, transports, env key names, command availability, and risk reasons without invoking servers.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Check local AgentDeck readiness.",
+      "user_prompt": "Run an AgentDeck health check and tell me what is ready or missing.",
+      "file_attachment_urls": null,
+      "tools_triggered": "agentdeck.health_check",
+      "expected_output": "Returns readiness results for required local tools and provider checks with actionable missing items.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Retrieve one stored handoff run.",
+      "user_prompt": "Fetch handoff run run:agent-codex:xai:example and summarize its result.",
+      "file_attachment_urls": null,
+      "tools_triggered": "agentdeck.get_run",
+      "expected_output": "Returns the matching stored handoff run when present or explains that no matching run was found.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Search local audit events.",
+      "user_prompt": "Search my AgentDeck audit log for recent xAI handoff activity.",
+      "file_attachment_urls": null,
+      "tools_triggered": "agentdeck.search_audit_log",
+      "expected_output": "Returns recent local audit records matching the query and summarizes any relevant activity.",
+      "expected_output_url": null
+    }
+  ],
+  "negative_test_cases": [
+    {
+      "description": "Do not trigger for creating external issues.",
+      "user_prompt": "Create a public GitHub issue for every missing provider in this project.",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "The app should not be invoked because AgentDeck only inspects local control-plane state and does not create public issues.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Do not trigger for sending messages.",
+      "user_prompt": "Send my latest handoff result to the team in Slack.",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "The app should not be invoked because sending external messages is outside the read-only AgentDeck MCP workflows.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Do not trigger for editing third-party agent configuration.",
+      "user_prompt": "Rewrite my Claude and Codex MCP config files to add every server you can find.",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "The app should not be invoked for config modification because the MCP tools only inspect local state and do not edit configuration files.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Do not trigger for unrelated calendar requests.",
+      "user_prompt": "What meetings do I have tomorrow morning?",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "The app should not be invoked because calendar lookup is outside AgentDeck's supported local developer-control workflows.",
+      "expected_output_url": null
+    }
+  ]
+}

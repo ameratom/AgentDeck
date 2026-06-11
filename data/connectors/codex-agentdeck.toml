@@ -1,0 +1,2 @@
+[mcp_servers.agentdeck]
+url = "http://127.0.0.1:7823/mcp"
