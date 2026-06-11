@@ -1,7 +1,8 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use chrono::Utc;
@@ -20,7 +21,32 @@ use crate::storage;
 
 const KEYCHAIN_SERVICE: &str = "com.agentdeck.desktop.provider";
 const LOCAL_LM_STUDIO_URL: &str = "http://localhost:1234/v1";
-const KEYCHAIN_LOOKUP_TIMEOUT: Duration = Duration::from_secs(2);
+const KEYCHAIN_LOOKUP_TIMEOUT: Duration = Duration::from_secs(30);
+
+static API_KEY_CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+
+fn api_key_cache() -> &'static Mutex<HashMap<String, String>> {
+    API_KEY_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn cache_api_key(provider_id: &str, key: &str) {
+    if let Ok(mut cache) = api_key_cache().lock() {
+        cache.insert(provider_id.to_owned(), key.to_owned());
+    }
+}
+
+fn get_cached_api_key(provider_id: &str) -> Option<String> {
+    api_key_cache()
+        .lock()
+        .ok()
+        .and_then(|cache| cache.get(provider_id).cloned())
+}
+
+fn evict_cached_api_key(provider_id: &str) {
+    if let Ok(mut cache) = api_key_cache().lock() {
+        cache.remove(provider_id);
+    }
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct ProviderDefinition {
@@ -213,6 +239,7 @@ pub async fn save_provider_api_key(
             .map_err(|error| format!("failed to save API key in Keychain: {error}"));
         if result.is_ok() {
             storage::set_provider_credential_stored(&database_path, definition.id, true)?;
+            cache_api_key(definition.id, &api_key);
         }
         let _ = store_provider_audit(
             &database_path,
@@ -248,6 +275,7 @@ pub async fn delete_provider_api_key(app: AppHandle, provider_id: String) -> Res
         };
         if result.is_ok() {
             storage::set_provider_credential_stored(&database_path, &provider_id, false)?;
+            evict_cached_api_key(&provider_id);
         }
         let _ = store_provider_audit(
             &database_path,
@@ -966,7 +994,10 @@ fn dispatch_anthropic(
 fn provider_headers(definition: &ProviderDefinition) -> Result<Option<HeaderMap>, String> {
     let Some(api_key) = resolve_api_key(definition)? else {
         if definition.key_env.is_some() {
-            return Err("No API key found in Keychain or development environment.".to_owned());
+            return Err(format!(
+                "No API key found for {}. Save your API key in the Providers tab, then click \"Always Allow\" when macOS asks for Keychain access.",
+                definition.name
+            ));
         }
         return Ok(None);
     };
@@ -1001,8 +1032,12 @@ fn credential_status(definition: &ProviderDefinition, probe_keychain: bool) -> S
     {
         return "environment".to_owned();
     }
-    if probe_keychain && has_keychain_credential(definition.id) {
-        return "keychain".to_owned();
+    if probe_keychain {
+        // resolve_api_key checks memory cache first, then keychain once — no double read
+        if resolve_api_key(definition).is_ok_and(|key| key.is_some()) {
+            return "keychain".to_owned();
+        }
+        return "missing".to_owned();
     }
     if provider_credential_stored(definition.id) {
         return "keychain".to_owned();
@@ -1020,17 +1055,21 @@ fn resolve_api_key(definition: &ProviderDefinition) -> Result<Option<String>, St
     if definition.key_env.is_none() {
         return Ok(None);
     }
+    // 1. Memory cache — no keychain read if already resolved this session
+    if let Some(cached) = get_cached_api_key(definition.id) {
+        return Ok(Some(cached));
+    }
+    // 2. Keychain (30s timeout — enough time to enter the macOS password dialog)
     if let Some(secret) = keychain_password(definition.id) {
+        cache_api_key(definition.id, &secret);
         return Ok(Some(secret));
     }
+    // 3. Env var fallback
     Ok(definition
         .key_env
         .and_then(|name| env::var(name).ok())
-        .filter(|value| !value.trim().is_empty()))
-}
-
-fn has_keychain_credential(provider_id: &str) -> bool {
-    keychain_password(provider_id).is_some()
+        .filter(|value| !value.trim().is_empty())
+        .inspect(|key| cache_api_key(definition.id, key)))
 }
 
 fn keychain_password(provider_id: &str) -> Option<String> {

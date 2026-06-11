@@ -74,7 +74,7 @@ export function ProvidersView() {
       await saveProviderApiKey({ providerId, apiKey });
       setKeys((current) => ({ ...current, [providerId]: "" }));
       await refreshProviders();
-      setStatus("API key stored in macOS Keychain.");
+      setStatus('API key saved. When macOS prompts for your login password, click "Always Allow" to prevent repeated prompts.');
     } catch (error) {
       setStatus(`Keychain save failed: ${formatError(error)}`);
     } finally {
