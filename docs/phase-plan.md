@@ -90,7 +90,7 @@ Tasks:
 
 - [x] Expose read-only tools over stdio and loopback HTTP.
 - [x] Add action tools behind approval and permission checks.
-- [ ] Complete end-to-end validation with Claude Code and Codex.
+- [x] Complete end-to-end validation with Claude Code and Codex.
 
 ## Phase 8
 

@@ -44,7 +44,13 @@ pub fn start_http_server() {
 }
 
 async fn handle_mcp_request(body: String) -> impl IntoResponse {
-    match mcp_server::process_request_line(&body) {
+    let result = tokio::task::spawn_blocking(move || mcp_server::process_request_line(&body))
+        .await
+        .unwrap_or_else(|error| {
+            Err(format!("MCP request task failed: {error}"))
+        });
+
+    match result {
         Ok(Some(response)) => json_response(StatusCode::OK, response),
         Ok(None) => (
             StatusCode::NO_CONTENT,
