@@ -1,6 +1,15 @@
 import { useEffect, useState } from "react";
-import { scanMcpInventory, toggleMcpServer } from "../../lib/invoke";
-import type { McpInventory, McpToggleResult } from "../../lib/types";
+import {
+  grokMcpBridgeStatus,
+  scanMcpInventory,
+  syncGrokMcpBridge,
+  toggleMcpServer,
+} from "../../lib/invoke";
+import type {
+  GrokMcpBridgeStatus,
+  McpInventory,
+  McpToggleResult,
+} from "../../lib/types";
 import { canToggleServer, existingSources, riskCounts } from "./mcpModel";
 
 export function McpView() {
@@ -9,6 +18,10 @@ export function McpView() {
   const [scanning, setScanning] = useState(true);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [lastToggle, setLastToggle] = useState<McpToggleResult | null>(null);
+  const [bridgeStatus, setBridgeStatus] = useState<GrokMcpBridgeStatus | null>(
+    null,
+  );
+  const [syncingBridge, setSyncingBridge] = useState(false);
 
   async function scan(): Promise<void> {
     setScanning(true);
@@ -26,6 +39,21 @@ export function McpView() {
       setStatus(`MCP inventory failed: ${detail}`);
     } finally {
       setScanning(false);
+    }
+  }
+
+  async function syncBridge(): Promise<void> {
+    setSyncingBridge(true);
+    setStatus("Syncing Grok MCP bridge from encrypted xAI credentials...");
+    try {
+      const nextBridgeStatus = await syncGrokMcpBridge();
+      setBridgeStatus(nextBridgeStatus);
+      setStatus(nextBridgeStatus.detail);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      setStatus(`Grok MCP bridge sync failed: ${detail}`);
+    } finally {
+      setSyncingBridge(false);
     }
   }
 
@@ -53,9 +81,13 @@ export function McpView() {
 
     async function load(): Promise<void> {
       try {
-        const nextInventory = await scanMcpInventory();
+        const [nextInventory, nextBridgeStatus] = await Promise.all([
+          scanMcpInventory(),
+          grokMcpBridgeStatus(),
+        ]);
         if (!cancelled) {
           setInventory(nextInventory);
+          setBridgeStatus(nextBridgeStatus);
           setStatus(
             `Found ${nextInventory.servers.length} server definitions across ${
               existingSources(nextInventory.sources).length
@@ -120,6 +152,48 @@ export function McpView() {
           Last backup: <code>{lastToggle.backupPath}</code>
         </p>
       ) : null}
+
+      <section className="mcp-bridge-panel" aria-label="Grok MCP bridge">
+        <div>
+          <p className="eyebrow">External connector</p>
+          <h3>Grok MCP bridge</h3>
+          <p>
+            Shell launchers cannot read AgentDeck&apos;s encrypted store. When you
+            save an xAI key, AgentDeck mirrors it to a mode-0600 env file for{" "}
+            <code>grok-mcp-launcher.sh</code>.
+          </p>
+        </div>
+        <dl>
+          <Detail
+            label="Bridge file"
+            value={bridgeStatus?.path ?? "Not loaded"}
+          />
+          <Detail
+            label="Status"
+            value={
+              bridgeStatus
+                ? bridgeStatus.hasKey
+                  ? "Ready for grok-mcp"
+                  : bridgeStatus.exists
+                    ? "Present but missing key"
+                    : "Not written"
+                : "Loading..."
+            }
+          />
+          {bridgeStatus?.updatedAt ? (
+            <Detail label="Updated" value={bridgeStatus.updatedAt} />
+          ) : null}
+        </dl>
+        <p className="mcp-toggle-note">{bridgeStatus?.detail}</p>
+        <button
+          className="secondary-button"
+          disabled={syncingBridge}
+          onClick={() => void syncBridge()}
+          type="button"
+        >
+          {syncingBridge ? "Syncing..." : "Sync Grok MCP bridge"}
+        </button>
+      </section>
 
       <section className="mcp-source-strip" aria-label="MCP config sources">
         {detectedSources.map((source) => (

@@ -119,9 +119,20 @@ claude mcp add grok-mcp -- \
 ```
 
 The AgentDeck project `.mcp.json` also includes `grok-mcp` alongside
-`agentdeck`. Set `XAI_API_KEY` in the launch environment or in
-`~/Grok-MCP/.env`. AgentDeck's encrypted provider store is intentionally
-private to the desktop app and is not decrypted by shell launchers.
+`agentdeck`.
+
+#### AgentDeck bridge (recommended)
+
+Shell launchers cannot decrypt AgentDeck's encrypted store. When you save an
+xAI key in **Providers**, AgentDeck mirrors it to a user-initiated bridge file:
+
+```text
+~/Library/Application Support/com.agentdeck.desktop/grok-mcp.env
+```
+
+The file is mode `0600` and is read by `scripts/grok-mcp-launcher.sh` after
+checking `~/Grok-MCP/.env`. Sync happens automatically on xAI save/import/delete
+and on app launch. Use **MCP → Sync Grok MCP bridge** to refresh manually.
 
 Manual key override (optional):
 
@@ -131,9 +142,19 @@ claude mcp add grok-mcp \
   -- uv run --directory ~/Grok-MCP python main.py
 ```
 
-Template: `data/connectors/grok-mcp.claude.json`
+Templates:
+
+- Claude: `data/connectors/grok-mcp.claude.json`
+- Codex: `data/connectors/grok-mcp.codex.toml`
 
 ### Codex
+
+```bash
+codex mcp add grok-mcp -- \
+  /path/to/AgentDeck/scripts/grok-mcp-launcher.sh
+```
+
+Or with an explicit key:
 
 ```bash
 codex mcp add grok-mcp \
@@ -183,11 +204,75 @@ Point the remote client at `http://127.0.0.1:7823/mcp` while AgentDeck is runnin
 
 ---
 
+## 5. Filesystem MCP (project-scoped)
+
+Purpose: read project files safely for handoffs and repo inspection.
+
+MVP policy:
+
+- Scope to explicit project roots only.
+- Deny `.env`, `secret.key`, and credential paths in launcher checks.
+- Prefer read tools; avoid write tools until Phase 6 approval flow exists.
+
+### Claude Code
+
+```bash
+claude mcp add filesystem -- \
+  /path/to/AgentDeck/scripts/filesystem-mcp-launcher.sh \
+  /path/to/your/project
+```
+
+Set `AGENTDECK_PROJECT_ROOT` or `AGENTDECK_FS_ROOTS` (colon-separated) in the
+server env for multi-root setups.
+
+Templates:
+
+- `data/connectors/filesystem-mcp.claude.json`
+- `data/connectors/filesystem-mcp.codex.toml`
+
+### Verify
+
+```bash
+claude mcp list
+# filesystem: ... - ✔ Connected
+```
+
+---
+
+## 6. Git MCP (read-only MVP)
+
+Purpose: branch/status/log/diff context for handoffs like "review this change."
+
+Uses the official [`mcp-server-git`](https://github.com/modelcontextprotocol/servers/tree/main/src/git)
+package via `uvx`. MVP policy: use read-oriented tools only (`git_status`,
+`git_log`, `git_diff`, `git_branch`); avoid commit/push until explicit approval.
+
+### Claude Code
+
+```bash
+claude mcp add git -- \
+  /path/to/AgentDeck/scripts/git-mcp-launcher.sh \
+  /path/to/your/project
+```
+
+Templates:
+
+- `data/connectors/git-mcp.claude.json`
+- `data/connectors/git-mcp.codex.toml`
+
+### Verify
+
+```bash
+claude mcp list
+# git: ... - ✔ Connected
+```
+
+---
+
 ## Optional connectors
 
 | Server | Install | Purpose |
 |--------|---------|---------|
-| Filesystem | `npx -y @modelcontextprotocol/server-filesystem ~/Desktop ~/Downloads` | Safe file read for vision/file paths |
 | Playwright | `npx -y @playwright/mcp@latest` | Browser automation (high risk — enable later) |
 | GitHub | `npx -y @modelcontextprotocol/server-github` | Issues, PRs, repo metadata |
 
@@ -227,6 +312,8 @@ curl -s -X POST http://127.0.0.1:7823/mcp \
 |---------|-----|
 | `agentdeck` MCP failed to connect | Launch AgentDeck.app (HTTP server starts with the app) |
 | `permission denied: agent:claude-code cannot perform execute-skill` | Enable `execute-skill` in Agents → Permissions |
-| Grok MCP auth error | Set `XAI_API_KEY` or add `.env` in the Grok-MCP directory |
+| Grok MCP auth error | Save xAI key in Providers, run **Sync Grok MCP bridge**, or set `XAI_API_KEY` / `~/Grok-MCP/.env` |
+| Filesystem MCP path denied | Pass an existing project root; avoid `.env` and secret paths |
+| Git MCP not a repository | Point `AGENTDECK_PROJECT_ROOT` at a directory containing `.git` |
 | Skill fails with LM Studio 400 | Load a chat model in LM Studio; pick it in Chat preferences |
 | Legacy Keychain prompt | Run **Import existing Keychain keys** once and approve the macOS prompt, or enter the API key manually. Normal AgentDeck operation does not access Keychain. |

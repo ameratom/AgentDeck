@@ -1,4 +1,5 @@
 mod commands;
+mod connector_bridge;
 pub mod mcp_http;
 pub mod mcp_server;
 mod models;
@@ -29,6 +30,9 @@ pub fn run() {
         .setup(|app| {
             tray::setup(app.handle())?;
             mcp_http::start_http_server();
+            if let Ok(database_path) = storage::database_path(app.handle()) {
+                let _ = connector_bridge::sync_grok_mcp_bridge(&database_path);
+            }
             let app_handle = app.handle().clone();
             thread::spawn(move || {
                 let initial_scan = commands::scan_environment();
@@ -57,6 +61,8 @@ pub fn run() {
             commands::handoffs::load_handoff_runs,
             commands::mcp::scan_mcp_inventory,
             commands::mcp::toggle_mcp_server,
+            commands::connectors::sync_grok_mcp_bridge,
+            commands::connectors::grok_mcp_bridge_status,
             commands::agent_permissions::load_agent_permissions,
             commands::agent_permissions::set_agent_permission,
             commands::plugins::load_plugin_inventory,

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "git": {
+      "command": "/path/to/AgentDeck/scripts/git-mcp-launcher.sh",
+      "args": ["/path/to/your/project"],
+      "env": {
+        "AGENTDECK_PROJECT_ROOT": "/path/to/your/project"
+      }
+    }
+  }
+}

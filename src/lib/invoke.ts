@@ -13,6 +13,7 @@ import type {
   ProviderCredentialRequest,
   McpInventory,
   McpToggleResult,
+  GrokMcpBridgeStatus,
   AgentPermissionMatrix,
   HandoffRequest,
   HandoffRun,
@@ -108,6 +109,14 @@ export function toggleMcpServer(
     enabled,
     agentId,
   });
+}
+
+export function syncGrokMcpBridge(): Promise<GrokMcpBridgeStatus> {
+  return invoke<GrokMcpBridgeStatus>("sync_grok_mcp_bridge");
+}
+
+export function grokMcpBridgeStatus(): Promise<GrokMcpBridgeStatus> {
+  return invoke<GrokMcpBridgeStatus>("grok_mcp_bridge_status");
 }
 
 export function loadAgentPermissions(): Promise<AgentPermissionMatrix> {

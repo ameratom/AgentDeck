@@ -1,6 +1,7 @@
 pub mod agent_permissions;
 pub mod chat;
 pub mod chat_providers;
+pub mod connectors;
 pub mod handoffs;
 pub mod mcp;
 pub mod plugins;

@@ -86,7 +86,11 @@ export function ProvidersView() {
       await saveProviderApiKey({ providerId, apiKey });
       setKeys((current) => ({ ...current, [providerId]: "" }));
       await refreshProviders();
-      setStatus("API key saved (encrypted on this device).");
+      setStatus(
+        providerId === "xai"
+          ? "API key saved (encrypted). Grok MCP bridge synced for shell launchers."
+          : "API key saved (encrypted on this device).",
+      );
     } catch (error) {
       setStatus(`Save failed: ${formatError(error)}`);
     } finally {

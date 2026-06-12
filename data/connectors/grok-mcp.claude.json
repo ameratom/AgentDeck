@@ -1,17 +1,8 @@
 {
   "mcpServers": {
     "grok-mcp": {
-      "command": "uv",
-      "args": [
-        "run",
-        "--directory",
-        "/Users/claudemccready/Grok-MCP",
-        "python",
-        "main.py"
-      ],
-      "env": {
-        "XAI_API_KEY": "your_xai_api_key_here"
-      }
+      "command": "/path/to/AgentDeck/scripts/grok-mcp-launcher.sh",
+      "args": []
     }
   }
 }

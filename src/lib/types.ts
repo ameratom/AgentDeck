@@ -204,6 +204,14 @@ export interface McpToggleResult {
   backupPath: string;
 }
 
+export interface GrokMcpBridgeStatus {
+  path: string;
+  exists: boolean;
+  hasKey: boolean;
+  updatedAt: string | null;
+  detail: string;
+}
+
 export interface AgentPermission {
   agentId: string;
   action: string;

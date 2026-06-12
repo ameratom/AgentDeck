@@ -1,0 +1,6 @@
+[mcp_servers.git]
+command = "/path/to/AgentDeck/scripts/git-mcp-launcher.sh"
+args = ["/path/to/your/project"]
+
+[mcp_servers.git.env]
+AGENTDECK_PROJECT_ROOT = "/path/to/your/project"

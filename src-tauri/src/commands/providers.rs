@@ -17,6 +17,7 @@ use crate::models::{
     LegacyCredentialImportOutcome, LegacyCredentialImportResult, LocalModel,
     ProviderAdapterStatus, ProviderCheckRequest, ProviderCredentialRequest, ProviderHealth,
 };
+use crate::connector_bridge;
 use crate::secrets;
 use crate::storage;
 
@@ -372,6 +373,9 @@ pub async fn save_provider_api_key(
         let result = store_provider_secret(&database_path, &definition, &api_key);
         if result.is_ok() {
             clear_import_failure_for_definition(&database_path, &definition)?;
+            if definition.id == "xai" {
+                let _ = connector_bridge::sync_grok_mcp_bridge(&database_path);
+            }
         }
         let _ = store_provider_audit(
             &database_path,
@@ -478,6 +482,7 @@ pub async fn import_legacy_provider_credentials(
             "legacy-keychain",
             started_at,
         );
+        let _ = connector_bridge::sync_grok_mcp_bridge(&database_path);
         Ok(result)
     })
     .await
@@ -704,6 +709,9 @@ pub async fn delete_provider_api_key(app: AppHandle, provider_id: String) -> Res
             ));
         }
         let result = delete_stored_secret(&database_path, &definition);
+        if result.is_ok() && definition.id == "xai" {
+            let _ = connector_bridge::sync_grok_mcp_bridge(&database_path);
+        }
         let _ = store_provider_audit(
             &database_path,
             "provider.credential.delete",
