@@ -238,6 +238,38 @@ pub fn set_provider_credential_stored(
     )
 }
 
+fn provider_import_failure_key(slot_id: &str) -> String {
+    format!("provider_import_failure:{slot_id}")
+}
+
+pub fn get_provider_import_failure(path: &Path, slot_id: &str) -> Option<String> {
+    let connection = open_database(path).ok()?;
+    let key = provider_import_failure_key(slot_id);
+    let mut statement = connection
+        .prepare("SELECT value FROM app_settings WHERE key = ?1")
+        .ok()?;
+    match statement.query_row([&key], |row| row.get::<_, String>(0)) {
+        Ok(value) if !value.trim().is_empty() => Some(value),
+        _ => None,
+    }
+}
+
+pub fn set_provider_import_failure(
+    path: &Path,
+    slot_id: &str,
+    detail: Option<&str>,
+) -> Result<(), String> {
+    let connection = open_database(path)?;
+    let key = provider_import_failure_key(slot_id);
+    match detail.filter(|value| !value.trim().is_empty()) {
+        Some(value) => set_string_setting(&connection, &key, value),
+        None => connection
+            .execute("DELETE FROM app_settings WHERE key = ?1", params![key])
+            .map_err(|error| format!("failed to clear provider import failure: {error}"))
+            .map(|_| ()),
+    }
+}
+
 pub fn update_app_settings(path: &Path, settings: &AppSettings) -> Result<AppSettings, String> {
     let connection = open_database(path)?;
     set_bool_setting(

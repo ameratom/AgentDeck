@@ -159,6 +159,7 @@ pub enum CredentialStatus {
     Stored,
     Environment,
     Missing,
+    ImportFailed,
     Unreadable,
 }
 

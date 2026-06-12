@@ -196,7 +196,8 @@ export function ProvidersView() {
                 >
                   {provider.verifiedAvailable
                     ? "Online"
-                    : provider.credentialStatus === "unreadable"
+                    : provider.credentialStatus === "unreadable" ||
+                        provider.credentialStatus === "import-failed"
                       ? "Needs attention"
                       : "Unchecked"}
                 </span>

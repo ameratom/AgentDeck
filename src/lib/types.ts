@@ -110,6 +110,7 @@ export type CredentialStatus =
   | "stored"
   | "environment"
   | "missing"
+  | "import-failed"
   | "unreadable";
 
 export type CatalogSource = "none" | "live" | "static" | "fallback";

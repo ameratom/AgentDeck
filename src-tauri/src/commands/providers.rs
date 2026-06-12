@@ -191,6 +191,12 @@ fn credential_state_at(
                     error: None,
                 };
             }
+            if let Some(detail) = storage::get_provider_import_failure(path, slot) {
+                return CredentialState {
+                    status: CredentialStatus::ImportFailed,
+                    error: Some(detail),
+                };
+            }
             CredentialState {
                 status: CredentialStatus::Missing,
                 error: None,
@@ -393,6 +399,7 @@ pub async fn save_provider_api_key(
         let result = store_provider_secret(&database_path, &definition, &api_key);
         if result.is_ok() {
             mark_shared_credential_stored(&database_path, &definition, true)?;
+            clear_import_failure_for_definition(&database_path, &definition)?;
         }
         let _ = store_provider_audit(
             &database_path,
@@ -481,6 +488,7 @@ pub async fn import_legacy_provider_credentials(
         result.conflicts.sort();
         result.errors.sort();
         result.outcomes.sort_by(|left, right| left.slot_id.cmp(&right.slot_id));
+        persist_import_failure_outcomes(&database_path, &result)?;
         let already_imported = result
             .outcomes
             .iter()
@@ -503,6 +511,33 @@ pub async fn import_legacy_provider_credentials(
     })
     .await
     .map_err(|error| format!("credential import task failed: {error}"))?
+}
+
+fn persist_import_failure_outcomes(
+    database_path: &Path,
+    result: &LegacyCredentialImportResult,
+) -> Result<(), String> {
+    for outcome in &result.outcomes {
+        match outcome.status.as_str() {
+            "denied" | "conflict" | "error" => {
+                storage::set_provider_import_failure(
+                    database_path,
+                    &outcome.slot_id,
+                    Some(&outcome.detail),
+                )?;
+            }
+            "imported" | "imported-unverified" | "already-imported" | "not-found" => {
+                storage::set_provider_import_failure(database_path, &outcome.slot_id, None)?;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn clear_import_failure_for_definition(path: &Path, definition: &ProviderDefinition) -> Result<(), String> {
+    let slot = credential_slot_id(definition);
+    storage::set_provider_import_failure(path, slot, None)
 }
 
 fn legacy_slot_label(slot: &str) -> &'static str {
@@ -800,7 +835,7 @@ pub(crate) fn grok_source_agent(readiness: &XaiReadiness) -> DiscoveredEntity {
 pub(crate) fn grok_status_label(credential_status: &str, health_available: bool) -> &'static str {
     if health_available {
         "available"
-    } else if credential_status == "missing" {
+    } else if credential_status == "missing" || credential_status == "import-failed" {
         "unavailable"
     } else {
         "degraded"
@@ -874,7 +909,9 @@ fn status_for_definition(
                     }
                 }
             }
-        } else if credential_status != CredentialStatus::Unreadable {
+        } else if credential_status != CredentialStatus::Unreadable
+            && credential_status != CredentialStatus::ImportFailed
+        {
             health.detail = format!(
                 "No API key found for {}. Save your API key in Providers or import the legacy Keychain entry.",
                 definition.name
@@ -924,6 +961,7 @@ fn credential_status_text(status: CredentialStatus) -> &'static str {
         CredentialStatus::Stored => "stored",
         CredentialStatus::Environment => "environment",
         CredentialStatus::Missing => "missing",
+        CredentialStatus::ImportFailed => "import-failed",
         CredentialStatus::Unreadable => "unreadable",
     }
 }
@@ -1796,6 +1834,57 @@ mod tests {
         let models = codex_static_models();
         assert!(models.iter().any(|model| model.id == "gpt-5.5"));
         assert!(models.iter().any(|model| model.id == "codex-mini-latest"));
+    }
+
+    #[test]
+    fn persisted_import_failure_surfaces_import_failed_status() {
+        clear_api_key_cache();
+        let dir = std::env::temp_dir().join(format!(
+            "agentdeck-import-failure-{}",
+            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let database_path = dir.join("agentdeck.sqlite3");
+        let definition = find_definition("anthropic").unwrap();
+        storage::set_provider_import_failure(
+            &database_path,
+            "anthropic",
+            Some("Anthropic could not be read from macOS Keychain."),
+        )
+        .unwrap();
+
+        let state = credential_state_at(&definition, Some(&database_path));
+
+        assert_eq!(state.status, CredentialStatus::ImportFailed);
+        assert!(state.error.unwrap().contains("Keychain"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn successful_save_clears_persisted_import_failure() {
+        clear_api_key_cache();
+        let dir = std::env::temp_dir().join(format!(
+            "agentdeck-clear-import-failure-{}",
+            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let database_path = dir.join("agentdeck.sqlite3");
+        let definition = find_definition("xai").unwrap();
+        storage::set_provider_import_failure(
+            &database_path,
+            "xai",
+            Some("xAI Keychain import failed."),
+        )
+        .unwrap();
+
+        store_provider_secret(&database_path, &definition, "sk-clear-import-test").unwrap();
+        clear_import_failure_for_definition(&database_path, &definition).unwrap();
+        evict_cached_api_key("xai");
+
+        let state = credential_state_at(&definition, Some(&database_path));
+        assert_eq!(state.status, CredentialStatus::Stored);
+        assert!(storage::get_provider_import_failure(&database_path, "xai").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

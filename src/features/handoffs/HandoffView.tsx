@@ -101,7 +101,9 @@ export function HandoffView({
       setStatus(
         provider.credentialStatus === "unreadable"
           ? `${provider.name} has an unreadable stored key. Re-save it in Providers.`
-          : `${provider.name} target provider needs an API key before models can load.`,
+          : provider.credentialStatus === "import-failed"
+            ? `${provider.name} legacy import failed. Approve Keychain access or enter the key in Providers.`
+            : `${provider.name} target provider needs an API key before models can load.`,
       );
       return;
     }

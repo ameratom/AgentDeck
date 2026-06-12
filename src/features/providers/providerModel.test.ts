@@ -31,6 +31,9 @@ describe("provider model helpers", () => {
   it("uses a clear label for stored credentials", () => {
     expect(credentialLabel("stored")).toBe("Stored (encrypted)");
     expect(credentialLabel("unreadable")).toBe("Unreadable — re-save or import");
+    expect(credentialLabel("import-failed")).toBe(
+      "Import failed — approve Keychain or enter key",
+    );
     expect(credentialLabel("missing")).toBe("Not configured — add or import key");
   });
 
@@ -40,8 +43,14 @@ describe("provider model helpers", () => {
     );
   });
 
-  it("blocks missing and unreadable cloud credentials", () => {
+  it("blocks missing, import-failed, and unreadable cloud credentials", () => {
     expect(providerCredentialBlocked(provider)).toBe(true);
+    expect(
+      providerCredentialBlocked({
+        ...provider,
+        credentialStatus: "import-failed",
+      }),
+    ).toBe(true);
     expect(
       providerCredentialBlocked({
         ...provider,

@@ -478,6 +478,7 @@ header > div > p:last-child {
 }
 
 .credential-status.unreadable,
+.credential-status.import-failed,
 .import-outcome.denied,
 .import-outcome.error,
 .import-outcome.conflict {

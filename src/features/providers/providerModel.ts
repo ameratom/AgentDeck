@@ -13,6 +13,8 @@ export function credentialLabel(status: CredentialStatus): string {
       return "Development environment";
     case "unreadable":
       return "Unreadable — re-save or import";
+    case "import-failed":
+      return "Import failed — approve Keychain or enter key";
     case "missing":
       return "Not configured — add or import key";
   }
@@ -21,7 +23,8 @@ export function credentialLabel(status: CredentialStatus): string {
 export function credentialStatusClass(status: CredentialStatus): string {
   switch (status) {
     case "unreadable":
-      return "credential-status unreadable";
+    case "import-failed":
+      return `credential-status ${status}`;
     case "missing":
       return "credential-status missing";
     case "stored":
@@ -65,6 +68,7 @@ export function providerCredentialBlocked(
     provider !== null &&
     provider.authMode !== "none" &&
     (provider.credentialStatus === "missing" ||
+      provider.credentialStatus === "import-failed" ||
       provider.credentialStatus === "unreadable")
   );
 }
