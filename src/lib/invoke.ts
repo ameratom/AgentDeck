@@ -14,6 +14,8 @@ import type {
   McpInventory,
   McpToggleResult,
   GrokMcpBridgeStatus,
+  RouterRuleMatrix,
+  HandoffRouteSuggestion,
   AgentPermissionMatrix,
   HandoffRequest,
   HandoffRun,
@@ -117,6 +119,26 @@ export function syncGrokMcpBridge(): Promise<GrokMcpBridgeStatus> {
 
 export function grokMcpBridgeStatus(): Promise<GrokMcpBridgeStatus> {
   return invoke<GrokMcpBridgeStatus>("grok_mcp_bridge_status");
+}
+
+export function loadRouterRules(): Promise<RouterRuleMatrix> {
+  return invoke<RouterRuleMatrix>("load_router_rules");
+}
+
+export function saveRouterRules(
+  rules: RouterRuleMatrix["rules"],
+): Promise<RouterRuleMatrix> {
+  return invoke<RouterRuleMatrix>("save_router_rules", { request: { rules } });
+}
+
+export function suggestHandoffRoute(request: {
+  sourceAgentId: string;
+  title: string;
+  task: string;
+}): Promise<HandoffRouteSuggestion | null> {
+  return invoke<HandoffRouteSuggestion | null>("suggest_handoff_route", {
+    request,
+  });
 }
 
 export function loadAgentPermissions(): Promise<AgentPermissionMatrix> {

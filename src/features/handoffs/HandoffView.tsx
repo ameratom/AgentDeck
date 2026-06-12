@@ -5,9 +5,11 @@ import {
   loadHandoffRuns,
   runHandoff,
   scanEnvironment,
+  suggestHandoffRoute,
 } from "../../lib/invoke";
 import type {
   EnvironmentScan,
+  HandoffRouteSuggestion,
   HandoffRun,
   ProviderAdapterStatus,
 } from "../../lib/types";
@@ -68,6 +70,8 @@ export function HandoffView({
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const [approvalSnapshot, setApprovalSnapshot] =
     useState<ApprovalSnapshot | null>(null);
+  const [routeSuggestion, setRouteSuggestion] =
+    useState<HandoffRouteSuggestion | null>(null);
 
   const activeScan = selectActiveScan(localScan, scan);
   const agents =
@@ -193,6 +197,51 @@ export function HandoffView({
       cancelled = true;
     };
   }, [refreshProviderModels]);
+
+  useEffect(() => {
+    if (!effectiveSourceId || title.trim() === "" || task.trim() === "") {
+      setRouteSuggestion(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void suggestHandoffRoute({
+        sourceAgentId: effectiveSourceId,
+        title,
+        task,
+      })
+        .then((suggestion) => {
+          if (!cancelled) {
+            setRouteSuggestion(suggestion);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setRouteSuggestion(null);
+          }
+        });
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [effectiveSourceId, title, task]);
+
+  async function applyRouteSuggestion(): Promise<void> {
+    if (!routeSuggestion) {
+      return;
+    }
+    setSelectedProviderId(routeSuggestion.targetProviderId);
+    await refreshProviderModels(routeSuggestion.targetProviderId, providers);
+    if (routeSuggestion.targetModelId) {
+      setSelectedModelId(routeSuggestion.targetModelId);
+    }
+    setStatus(
+      `Applied router rule "${routeSuggestion.ruleName}" (${routeSuggestion.reason})`,
+    );
+  }
 
   async function refreshSourceAgents(): Promise<void> {
     setScanningSources(true);
@@ -442,6 +491,28 @@ export function HandoffView({
                 Review handoff
               </button>
             </div>
+
+            {routeSuggestion ? (
+              <div className="handoff-router-suggestion handoff-wide">
+                <div>
+                  <strong>Router suggestion: {routeSuggestion.ruleName}</strong>
+                  <p>
+                    Route to {routeSuggestion.targetProviderId}
+                    {routeSuggestion.targetModelId
+                      ? ` / ${routeSuggestion.targetModelId}`
+                      : ""}
+                    . {routeSuggestion.reason}
+                  </p>
+                </div>
+                <button
+                  disabled={refreshingModels}
+                  onClick={() => void applyRouteSuggestion()}
+                  type="button"
+                >
+                  Apply suggestion
+                </button>
+              </div>
+            ) : null}
 
             <label className="handoff-wide">
               <span>Title</span>

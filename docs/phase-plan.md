@@ -116,3 +116,17 @@ Tasks:
 - [x] Crash-safe logs.
 - [x] App bundle and hardened-runtime prep.
 - [x] Developer ID signing and notarization.
+
+## Phase 10
+
+External connectors and routing polish.
+
+Tasks:
+
+- [x] Grok MCP bridge (`grok-mcp.env`) for shell launchers
+- [x] Filesystem MCP launcher (project-scoped)
+- [x] Git MCP launcher (read-only MVP)
+- [x] Connector templates for Claude Code and Codex
+- [x] Handoff router rules UI in Settings
+- [x] Router suggestions in Handoffs view
+- [x] v0.1.2 signed + notarized release

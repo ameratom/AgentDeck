@@ -1,5 +1,6 @@
 mod commands;
 mod connector_bridge;
+mod router;
 pub mod mcp_http;
 pub mod mcp_server;
 mod models;
@@ -59,6 +60,9 @@ pub fn run() {
             commands::providers::import_legacy_provider_credentials,
             commands::handoffs::run_handoff,
             commands::handoffs::load_handoff_runs,
+            commands::router::load_router_rules,
+            commands::router::save_router_rules,
+            commands::router::suggest_handoff_route,
             commands::mcp::scan_mcp_inventory,
             commands::mcp::toggle_mcp_server,
             commands::connectors::sync_grok_mcp_bridge,

@@ -10,7 +10,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::models::{
     AppSettings, AuditEventRecord, AuditEventsPage, ChatMessage, ChatPreferences, HandoffRun,
-    LocalDeleteResult, LocalExportResult, SkillExecutionRecord,
+    LocalDeleteResult, LocalExportResult, RouterRule, SkillExecutionRecord,
 };
 
 const DEFAULT_REDACT_SENSITIVE_EXPORTS: bool = true;
@@ -293,6 +293,7 @@ pub fn export_local_data(path: &Path) -> Result<LocalExportResult, String> {
         audit_events: load_audit_events(&connection)?,
         plugin_settings: load_plugin_settings(&connection)?,
         skill_execution_runs: load_skill_executions(&connection)?,
+        router_rules: load_router_rules(&connection)?,
         app_settings: settings.clone(),
     };
 
@@ -401,7 +402,19 @@ struct LocalDataExport {
     audit_events: Vec<AuditEventRecord>,
     plugin_settings: Vec<PluginSettingRecord>,
     skill_execution_runs: Vec<SkillExecutionRecord>,
+    router_rules: Vec<RouterRule>,
     app_settings: AppSettings,
+}
+
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RouterRulePayload {
+    name: String,
+    enabled: bool,
+    source_agent_id: Option<String>,
+    keyword: Option<String>,
+    target_provider_id: String,
+    target_model_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -596,6 +609,106 @@ pub fn delete_provider_secret(path: &Path, slot_id: &str) -> Result<(), String> 
         )
         .map_err(|error| format!("failed to delete provider secret: {error}"))?;
     Ok(())
+}
+
+pub fn load_router_rules(connection: &Connection) -> Result<Vec<RouterRule>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT id, priority, rule_json, updated_at
+             FROM router_rules
+             ORDER BY priority ASC, id ASC",
+        )
+        .map_err(|error| format!("failed to prepare router rules query: {error}"))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i32>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })
+        .map_err(|error| format!("failed to query router rules: {error}"))?;
+
+    let mut rules = Vec::new();
+    for row in rows {
+        let (id, priority, rule_json, updated_at) =
+            row.map_err(|error| format!("failed to read router rule row: {error}"))?;
+        let payload: RouterRulePayload = serde_json::from_str(&rule_json).map_err(|error| {
+            format!("failed to parse router rule {id}: {error}")
+        })?;
+        rules.push(RouterRule {
+            id,
+            priority,
+            name: payload.name,
+            enabled: payload.enabled,
+            source_agent_id: payload.source_agent_id,
+            keyword: payload.keyword,
+            target_provider_id: payload.target_provider_id,
+            target_model_id: payload.target_model_id,
+            updated_at,
+        });
+    }
+    Ok(rules)
+}
+
+pub fn replace_router_rules(
+    connection: &Connection,
+    rules: &[RouterRule],
+) -> Result<Vec<RouterRule>, String> {
+    if rules.len() > 50 {
+        return Err("router rule limit is 50".to_owned());
+    }
+
+    for rule in rules {
+        validate_identifier("router rule id", &rule.id)?;
+        validate_identifier("router rule name", &rule.name)?;
+        validate_identifier("router target provider id", &rule.target_provider_id)?;
+        if let Some(model_id) = rule.target_model_id.as_deref() {
+            if !model_id.trim().is_empty() {
+                validate_identifier("router target model id", model_id)?;
+            }
+        }
+        if let Some(source) = rule.source_agent_id.as_deref() {
+            if !source.trim().is_empty() {
+                validate_identifier("router source agent id", source)?;
+            }
+        }
+    }
+
+    let updated_at = Utc::now().to_rfc3339();
+    connection
+        .execute("DELETE FROM router_rules", [])
+        .map_err(|error| format!("failed to clear router rules: {error}"))?;
+
+    for (index, rule) in rules.iter().enumerate() {
+        let payload = RouterRulePayload {
+            name: rule.name.clone(),
+            enabled: rule.enabled,
+            source_agent_id: normalize_optional_text(rule.source_agent_id.as_deref()),
+            keyword: normalize_optional_text(rule.keyword.as_deref()),
+            target_provider_id: rule.target_provider_id.clone(),
+            target_model_id: normalize_optional_text(rule.target_model_id.as_deref()),
+        };
+        let rule_json = serde_json::to_string(&payload)
+            .map_err(|error| format!("failed to encode router rule: {error}"))?;
+        connection
+            .execute(
+                "INSERT INTO router_rules (id, priority, rule_json, updated_at)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![rule.id, index as i32, rule_json, updated_at],
+            )
+            .map_err(|error| format!("failed to store router rule: {error}"))?;
+    }
+
+    load_router_rules(connection)
+}
+
+fn normalize_optional_text(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_owned)
 }
 
 fn read_bool_setting(
@@ -993,6 +1106,50 @@ mod storage_tests {
             )
             .unwrap();
         assert_eq!(count, 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn replace_router_rules_persists_priority_order() {
+        let dir = std::env::temp_dir().join(format!(
+            "agentdeck-router-rules-{}",
+            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("agentdeck.sqlite3");
+        let connection = open_database(&path).unwrap();
+        let rules = vec![
+            RouterRule {
+                id: "router-rule:local".to_owned(),
+                priority: 0,
+                name: "Local review".to_owned(),
+                enabled: true,
+                source_agent_id: None,
+                keyword: Some("review".to_owned()),
+                target_provider_id: "lm-studio".to_owned(),
+                target_model_id: None,
+                updated_at: Utc::now().to_rfc3339(),
+            },
+            RouterRule {
+                id: "router-rule:cloud".to_owned(),
+                priority: 1,
+                name: "Cloud research".to_owned(),
+                enabled: true,
+                source_agent_id: Some("agent:grok".to_owned()),
+                keyword: Some("research".to_owned()),
+                target_provider_id: "xai".to_owned(),
+                target_model_id: None,
+                updated_at: Utc::now().to_rfc3339(),
+            },
+        ];
+
+        let saved = replace_router_rules(&connection, &rules).unwrap();
+        assert_eq!(saved.len(), 2);
+        assert_eq!(saved[0].id, "router-rule:local");
+        assert_eq!(saved[1].target_provider_id, "xai");
+
+        let loaded = load_router_rules(&connection).unwrap();
+        assert_eq!(loaded[0].keyword.as_deref(), Some("review"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

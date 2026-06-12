@@ -3,9 +3,19 @@ import {
   deleteLocalData,
   exportLocalData,
   loadAppSettings,
+  loadRouterRules,
+  saveRouterRules,
   updateAppSettings,
 } from "../../lib/invoke";
-import type { AppSettings } from "../../lib/types";
+import type { AppSettings, RouterRule } from "../../lib/types";
+import {
+  ROUTER_PROVIDER_OPTIONS,
+  ROUTER_SOURCE_OPTIONS,
+  createRouterRule,
+  moveRouterRule,
+  removeRouterRule,
+  updateRouterRule,
+} from "./routerModel";
 
 const DEFAULT_SETTINGS: AppSettings = {
   redactSensitiveExports: true,
@@ -19,6 +29,8 @@ export function SettingsView() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [busyAction, setBusyAction] = useState<"export" | "delete" | null>(null);
+  const [routerRules, setRouterRules] = useState<RouterRule[]>([]);
+  const [savingRouter, setSavingRouter] = useState(false);
   const [status, setStatus] = useState("Loading hardening settings.");
 
   useEffect(() => {
@@ -26,9 +38,13 @@ export function SettingsView() {
 
     async function load(): Promise<void> {
       try {
-        const nextSettings = await loadAppSettings();
+        const [nextSettings, routerMatrix] = await Promise.all([
+          loadAppSettings(),
+          loadRouterRules(),
+        ]);
         if (!cancelled) {
           setSettings(nextSettings);
+          setRouterRules(routerMatrix.rules);
           setStatus("Hardening settings loaded.");
         }
       } catch (error) {
@@ -74,6 +90,20 @@ export function SettingsView() {
       setStatus(`Export failed: ${formatError(error)}`);
     } finally {
       setBusyAction(null);
+    }
+  }
+
+  async function persistRouterRules(nextRules: RouterRule[]): Promise<void> {
+    setSavingRouter(true);
+    setStatus("Saving handoff router rules...");
+    try {
+      const saved = await saveRouterRules(nextRules);
+      setRouterRules(saved.rules);
+      setStatus(`Saved ${saved.rules.length} router rules.`);
+    } catch (error) {
+      setStatus(`Router save failed: ${formatError(error)}`);
+    } finally {
+      setSavingRouter(false);
     }
   }
 
@@ -190,6 +220,206 @@ export function SettingsView() {
             <span>Keep Grok available as a source agent from your active subscription.</span>
           </label>
         </article>
+      </section>
+
+      <section className="settings-router" aria-label="Handoff router rules">
+        <header>
+          <div>
+            <p className="eyebrow">Routing</p>
+            <h3>Handoff router rules</h3>
+            <p>
+              Priority-ordered suggestions for the Handoffs view. Lower priority
+              numbers win first. Rules match source agent and/or keywords in the
+              title and task.
+            </p>
+          </div>
+        </header>
+
+        <div className="settings-router-list">
+          {routerRules.length ? (
+            routerRules.map((rule, index) => (
+              <article className="settings-router-rule" key={rule.id}>
+                <div className="settings-router-rule-head">
+                  <div>
+                    <strong>{rule.name}</strong>
+                    <small>
+                      priority {index} · {rule.id}
+                    </small>
+                  </div>
+                  <label className="settings-toggle">
+                    <input
+                      checked={rule.enabled}
+                      disabled={savingRouter || loading}
+                      onChange={(event) =>
+                        setRouterRules((current) =>
+                          updateRouterRule(current, rule.id, {
+                            enabled: event.target.checked,
+                          }),
+                        )
+                      }
+                      type="checkbox"
+                    />
+                    <span>Enabled</span>
+                  </label>
+                </div>
+
+                <div className="settings-router-fields">
+                  <label>
+                    Rule name
+                    <input
+                      disabled={savingRouter || loading}
+                      onChange={(event) =>
+                        setRouterRules((current) =>
+                          updateRouterRule(current, rule.id, {
+                            name: event.target.value,
+                          }),
+                        )
+                      }
+                      value={rule.name}
+                    />
+                  </label>
+                  <label>
+                    Source agent
+                    <select
+                      disabled={savingRouter || loading}
+                      onChange={(event) =>
+                        setRouterRules((current) =>
+                          updateRouterRule(current, rule.id, {
+                            sourceAgentId: event.target.value || null,
+                          }),
+                        )
+                      }
+                      value={rule.sourceAgentId ?? ""}
+                    >
+                      {ROUTER_SOURCE_OPTIONS.map((option) => (
+                        <option key={option.id || "any"} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Keyword
+                    <input
+                      disabled={savingRouter || loading}
+                      onChange={(event) =>
+                        setRouterRules((current) =>
+                          updateRouterRule(current, rule.id, {
+                            keyword: event.target.value || null,
+                          }),
+                        )
+                      }
+                      placeholder="review, research, local"
+                      value={rule.keyword ?? ""}
+                    />
+                  </label>
+                  <label>
+                    Target provider
+                    <select
+                      disabled={savingRouter || loading}
+                      onChange={(event) =>
+                        setRouterRules((current) =>
+                          updateRouterRule(current, rule.id, {
+                            targetProviderId: event.target.value,
+                          }),
+                        )
+                      }
+                      value={rule.targetProviderId}
+                    >
+                      {ROUTER_PROVIDER_OPTIONS.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Target model (optional)
+                    <input
+                      disabled={savingRouter || loading}
+                      onChange={(event) =>
+                        setRouterRules((current) =>
+                          updateRouterRule(current, rule.id, {
+                            targetModelId: event.target.value || null,
+                          }),
+                        )
+                      }
+                      placeholder="Leave blank for default model"
+                      value={rule.targetModelId ?? ""}
+                    />
+                  </label>
+                </div>
+
+                <div className="settings-router-actions">
+                  <button
+                    disabled={savingRouter || loading || index === 0}
+                    onClick={() =>
+                      setRouterRules((current) =>
+                        moveRouterRule(current, rule.id, "up"),
+                      )
+                    }
+                    type="button"
+                  >
+                    Move up
+                  </button>
+                  <button
+                    disabled={
+                      savingRouter || loading || index === routerRules.length - 1
+                    }
+                    onClick={() =>
+                      setRouterRules((current) =>
+                        moveRouterRule(current, rule.id, "down"),
+                      )
+                    }
+                    type="button"
+                  >
+                    Move down
+                  </button>
+                  <button
+                    className="secondary-button danger-button"
+                    disabled={savingRouter || loading}
+                    onClick={() =>
+                      setRouterRules((current) =>
+                        removeRouterRule(current, rule.id),
+                      )
+                    }
+                    type="button"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </article>
+            ))
+          ) : (
+            <p className="empty-state">
+              No router rules yet. Add one to suggest target providers from
+              handoff title and task keywords.
+            </p>
+          )}
+        </div>
+
+        <div className="settings-router-actions">
+          <button
+            disabled={savingRouter || loading || routerRules.length >= 50}
+            onClick={() =>
+              setRouterRules((current) => [
+                ...current,
+                createRouterRule(current.length),
+              ])
+            }
+            type="button"
+          >
+            Add rule
+          </button>
+          <button
+            className="secondary-button"
+            disabled={savingRouter || loading}
+            onClick={() => void persistRouterRules(routerRules)}
+            type="button"
+          >
+            {savingRouter ? "Saving..." : "Save router rules"}
+          </button>
+        </div>
       </section>
 
       <section className="settings-actions" aria-label="Data controls">

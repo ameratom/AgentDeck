@@ -212,6 +212,31 @@ export interface GrokMcpBridgeStatus {
   detail: string;
 }
 
+export interface RouterRule {
+  id: string;
+  priority: number;
+  name: string;
+  enabled: boolean;
+  sourceAgentId: string | null;
+  keyword: string | null;
+  targetProviderId: string;
+  targetModelId: string | null;
+  updatedAt: string;
+}
+
+export interface RouterRuleMatrix {
+  loadedAt: string;
+  rules: RouterRule[];
+}
+
+export interface HandoffRouteSuggestion {
+  ruleId: string;
+  ruleName: string;
+  targetProviderId: string;
+  targetModelId: string | null;
+  reason: string;
+}
+
 export interface AgentPermission {
   agentId: string;
   action: string;

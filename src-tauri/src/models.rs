@@ -446,3 +446,48 @@ pub struct LocalDeleteResult {
     pub path: String,
     pub removed_files: Vec<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RouterRule {
+    pub id: String,
+    pub priority: i32,
+    pub name: String,
+    pub enabled: bool,
+    pub source_agent_id: Option<String>,
+    pub keyword: Option<String>,
+    pub target_provider_id: String,
+    pub target_model_id: Option<String>,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RouterRuleMatrix {
+    pub loaded_at: String,
+    pub rules: Vec<RouterRule>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveRouterRulesRequest {
+    pub rules: Vec<RouterRule>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HandoffRouteRequest {
+    pub source_agent_id: String,
+    pub title: String,
+    pub task: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HandoffRouteSuggestion {
+    pub rule_id: String,
+    pub rule_name: String,
+    pub target_provider_id: String,
+    pub target_model_id: Option<String>,
+    pub reason: String,
+}

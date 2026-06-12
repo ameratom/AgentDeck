@@ -6,6 +6,7 @@ pub mod handoffs;
 pub mod mcp;
 pub mod plugins;
 pub mod providers;
+pub mod router;
 
 pub mod settings;
 
