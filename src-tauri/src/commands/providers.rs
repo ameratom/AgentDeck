@@ -115,22 +115,6 @@ fn delete_stored_secret(path: &Path, definition: &ProviderDefinition) -> Result<
     Ok(())
 }
 
-fn mark_shared_credential_stored(
-    path: &Path,
-    definition: &ProviderDefinition,
-    stored: bool,
-) -> Result<(), String> {
-    let Some(key_env) = definition.key_env else {
-        return Ok(());
-    };
-    for sibling in provider_definitions() {
-        if sibling.key_env == Some(key_env) {
-            storage::set_provider_credential_stored(path, sibling.id, stored)?;
-        }
-    }
-    Ok(())
-}
-
 #[derive(Debug)]
 struct CredentialState {
     status: CredentialStatus,
@@ -179,12 +163,6 @@ fn credential_state_at(
             error: None,
         },
         Ok(None) => {
-            if provider_definitions().iter().any(|sibling| {
-                sibling.key_env == definition.key_env
-                    && storage::is_provider_credential_stored(path, sibling.id)
-            }) {
-                let _ = mark_shared_credential_stored(path, definition, false);
-            }
             if read_env_api_key(definition).is_some() {
                 return CredentialState {
                     status: CredentialStatus::Environment,
@@ -349,11 +327,6 @@ pub async fn check_provider_adapter(
         let started_at = Utc::now();
         let definition = find_definition(&request.provider_id)?;
         let result = status_for_definition(&definition, true, Some(&database_path));
-        if let Ok(provider) = &result {
-            if provider.credential_status == CredentialStatus::Stored {
-                let _ = mark_shared_credential_stored(&database_path, &definition, true);
-            }
-        }
         let status = if result
             .as_ref()
             .is_ok_and(|provider| provider.health.available)
@@ -398,7 +371,6 @@ pub async fn save_provider_api_key(
         }
         let result = store_provider_secret(&database_path, &definition, &api_key);
         if result.is_ok() {
-            mark_shared_credential_stored(&database_path, &definition, true)?;
             clear_import_failure_for_definition(&database_path, &definition)?;
         }
         let _ = store_provider_audit(
@@ -437,7 +409,6 @@ pub async fn import_legacy_provider_credentials(
             let label = legacy_slot_label(&slot).to_owned();
             match store_provider_secret(&database_path, &definition, &secret) {
                 Ok(()) => {
-                    mark_shared_credential_stored(&database_path, &definition, true)?;
                     result.imported.push(label.clone());
                     let base_url = resolved_base_url(&definition);
                     match fetch_provider_models(&definition, &base_url) {
@@ -733,9 +704,6 @@ pub async fn delete_provider_api_key(app: AppHandle, provider_id: String) -> Res
             ));
         }
         let result = delete_stored_secret(&database_path, &definition);
-        if result.is_ok() {
-            mark_shared_credential_stored(&database_path, &definition, false)?;
-        }
         let _ = store_provider_audit(
             &database_path,
             "provider.credential.delete",
@@ -1888,24 +1856,19 @@ mod tests {
     }
 
     #[test]
-    fn stale_database_flag_does_not_report_stored_credentials() {
+    fn empty_encrypted_store_reports_missing_without_legacy_flags() {
         clear_api_key_cache();
         let dir = std::env::temp_dir().join(format!(
-            "agentdeck-stale-credential-{}",
+            "agentdeck-missing-credential-{}",
             Utc::now().timestamp_nanos_opt().unwrap_or(0)
         ));
         std::fs::create_dir_all(&dir).unwrap();
         let database_path = dir.join("agentdeck.sqlite3");
         let definition = find_definition("anthropic").unwrap();
-        storage::set_provider_credential_stored(&database_path, definition.id, true).unwrap();
 
         let state = credential_state_at(&definition, Some(&database_path));
 
         assert_eq!(state.status, CredentialStatus::Missing);
-        assert!(!storage::is_provider_credential_stored(
-            &database_path,
-            definition.id
-        ));
         assert!(!dir.join("secret.key").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }

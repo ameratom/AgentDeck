@@ -207,37 +207,6 @@ pub fn save_chat_preferences(path: &Path, preferences: &ChatPreferences) -> Resu
     Ok(())
 }
 
-fn provider_credential_setting_key(provider_id: &str) -> String {
-    format!("provider_credential_stored:{provider_id}")
-}
-
-pub fn is_provider_credential_stored(path: &Path, provider_id: &str) -> bool {
-    open_database(path)
-        .ok()
-        .and_then(|connection| {
-            read_bool_setting(
-                &connection,
-                &provider_credential_setting_key(provider_id),
-                false,
-            )
-            .ok()
-        })
-        .unwrap_or(false)
-}
-
-pub fn set_provider_credential_stored(
-    path: &Path,
-    provider_id: &str,
-    stored: bool,
-) -> Result<(), String> {
-    let connection = open_database(path)?;
-    set_bool_setting(
-        &connection,
-        &provider_credential_setting_key(provider_id),
-        stored,
-    )
-}
-
 fn provider_import_failure_key(slot_id: &str) -> String {
     format!("provider_import_failure:{slot_id}")
 }
@@ -567,6 +536,27 @@ fn migrate_database(connection: &Connection) -> Result<(), String> {
             )
             .map_err(|error| format!("failed to record schema migration: {error}"))?;
     }
+    if !migration_applied(connection, 5)? {
+        purge_legacy_provider_credential_flags(connection)?;
+        connection
+            .execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+                params![5_i64, Utc::now().to_rfc3339()],
+            )
+            .map_err(|error| format!("failed to record schema migration: {error}"))?;
+    }
+    Ok(())
+}
+
+fn purge_legacy_provider_credential_flags(connection: &Connection) -> Result<(), String> {
+    connection
+        .execute(
+            "DELETE FROM app_settings WHERE key LIKE 'provider_credential_stored:%'",
+            [],
+        )
+        .map_err(|error| {
+            format!("failed to purge legacy provider credential flags: {error}")
+        })?;
     Ok(())
 }
 
@@ -961,6 +951,49 @@ mod storage_tests {
         let value = "a".repeat(MAX_IDENTIFIER_CHARS + 1);
         assert!(validate_identifier("test ID", &value).is_err());
         assert!(validate_identifier("test ID", &"a".repeat(MAX_IDENTIFIER_CHARS)).is_ok());
+    }
+
+    #[test]
+    fn purge_legacy_provider_credential_flags_removes_stale_rows() {
+        let dir = std::env::temp_dir().join(format!(
+            "agentdeck-purge-credential-flags-{}",
+            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("agentdeck.sqlite3");
+        let connection = open_database(&path).unwrap();
+        connection
+            .execute(
+                "INSERT INTO app_settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
+                params![
+                    "provider_credential_stored:anthropic",
+                    "true",
+                    Utc::now().to_rfc3339()
+                ],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO app_settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
+                params![
+                    "provider_credential_stored:codex",
+                    "true",
+                    Utc::now().to_rfc3339()
+                ],
+            )
+            .unwrap();
+
+        purge_legacy_provider_credential_flags(&connection).unwrap();
+
+        let count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM app_settings WHERE key LIKE 'provider_credential_stored:%'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 
