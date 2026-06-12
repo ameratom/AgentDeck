@@ -90,6 +90,7 @@ Also prepare (not in JSON import):
 
 - App logo and screenshots
 - Privacy policy URL: `https://ameratom.github.io/AgentDeck/privacy-policy/`
+- Terms of service URL: `https://ameratom.github.io/AgentDeck/terms-of-service/`
 - Support URL: `https://github.com/ameratom/AgentDeck/issues`
 - Company / developer URL: `https://github.com/ameratom`
 - MCP server URL (tunnel HTTPS endpoint for review)

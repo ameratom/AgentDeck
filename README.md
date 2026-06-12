@@ -36,6 +36,7 @@ Artifacts:
 - [MCP connectors](docs/mcp-connectors.md)
 - [ChatGPT app submission](docs/chatgpt-app-submission.md)
 - [Privacy policy](docs/privacy-policy.md)
+- [Terms of service](docs/terms-of-service.md)
 - [Distribution](docs/distribution.md)
 
 ## License
