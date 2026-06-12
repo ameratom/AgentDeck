@@ -89,8 +89,9 @@ Copy from `chatgpt-app-submission.json`:
 Also prepare (not in JSON import):
 
 - App logo and screenshots
-- Privacy policy URL
-- Company / support URL
+- Privacy policy URL: `https://ameratom.github.io/AgentDeck/privacy-policy/`
+- Support URL: `https://github.com/ameratom/AgentDeck/issues`
+- Company / developer URL: `https://github.com/ameratom`
 - MCP server URL (tunnel HTTPS endpoint for review)
 
 ## Troubleshooting
