@@ -62,9 +62,16 @@ AgentDeck should make one thing obvious:
 
 The first release is **observability + controlled chat routing**, not full autonomous orchestration.
 
+## ChatGPT submission (ready to test)
+
+- Import file: `chatgpt-app-submission.json` (read-only v1 profile, 7 tools)
+- Guide: `docs/chatgpt-app-submission.md`
+- Validate: `./scripts/validate-chatgpt-submission.sh`
+- Tunnel helper: `scripts/run-chatgpt-mcp-tunnel.sh` (requires `chatgpt-mcp-tunnel.local.env`)
+
 ## Next candidates
 
-1. ChatGPT app submission polish (`chatgpt-app-submission.json`)
+1. Submit ChatGPT app via Platform dashboard after tunnel smoke test
 2. Chat view router suggestions (parity with Handoffs)
 3. xAI Research MCP wrapper (`agentdeck-xai-research-mcp`)
 4. Router rules: seed sensible defaults on first run

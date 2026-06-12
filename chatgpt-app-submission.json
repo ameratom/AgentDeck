@@ -4,8 +4,31 @@
   "app_info": {
     "display_name": "AgentDeck",
     "subtitle": "Local agent control",
-    "description": "AgentDeck helps users inspect a local AI agent workspace from ChatGPT by scanning installed tools, providers, running processes, MCP configuration, graph relationships, handoff runs, and audit events without modifying external configurations.",
+    "description": "AgentDeck is a macOS local control plane for AI agents, LLM providers, MCP servers, plugins, and handoffs. From ChatGPT, users inspect what is running on their own machine: installed tools, provider health, MCP configuration risk, relationship graphs, stored handoff runs, and audit events. All inspection is read-only in this submission profile. AgentDeck does not upload credentials, modify third-party config files, or send data to external services. Requires AgentDeck.app running locally and a Secure MCP Tunnel (or HTTPS connector in developer mode) to reach http://127.0.0.1:7823/mcp.",
     "category": "DEVELOPER_TOOLS"
+  },
+  "submission_profile": {
+    "agentdeck_version": "0.1.2",
+    "included_tools": "read_only_v1",
+    "local_mcp_endpoint": "http://127.0.0.1:7823/mcp",
+    "connection_modes": [
+      "secure_mcp_tunnel",
+      "developer_mode_connector"
+    ],
+    "deferred_tools": [
+      "agentdeck.dispatch_handoff",
+      "agentdeck.execute_skill",
+      "agentdeck.toggle_mcp_server"
+    ],
+    "deferred_reason": "Write tools require explicit caller permissions and user approval in the desktop app. They remain available in developer mode but are excluded from the initial public read-only submission."
+  },
+  "connector": {
+    "name": "AgentDeck",
+    "description_short": "Inspect local agents, MCP configs, handoffs, and audits on your Mac.",
+    "auth": "none",
+    "requires_local_app": true,
+    "requires_macos": true,
+    "privacy_summary": "Data stays on the user's Mac in a local SQLite database. Credentials are encrypted at rest. No runtime Keychain reads. ChatGPT only receives tool responses from the user's machine during an active tunnel session."
   },
   "tools": {
     "agentdeck.scan_environment": {
@@ -104,7 +127,7 @@
     },
     {
       "description": "Explain the local agent relationship graph.",
-      "user_prompt": "Show me how my local agents, providers, tools, and configs are connected.",
+      "user_prompt": "Show me how my local agents, providers, tools, and configs are connected in AgentDeck.",
       "file_attachment_urls": null,
       "tools_triggered": "agentdeck.get_graph",
       "expected_output": "Returns graph nodes and edges with a readable explanation of the relationships.",
@@ -128,7 +151,7 @@
     },
     {
       "description": "Check local AgentDeck readiness.",
-      "user_prompt": "Run an AgentDeck health check and tell me what is ready or missing.",
+      "user_prompt": "Run an AgentDeck health check and tell me what is ready or missing on this Mac.",
       "file_attachment_urls": null,
       "tools_triggered": "agentdeck.health_check",
       "expected_output": "Returns readiness results for required local tools and provider checks with actionable missing items.",
@@ -136,7 +159,7 @@
     },
     {
       "description": "Retrieve one stored handoff run.",
-      "user_prompt": "Fetch handoff run run:agent-codex:xai:example and summarize its result.",
+      "user_prompt": "List my recent AgentDeck handoff runs, then fetch the newest one and summarize its result.",
       "file_attachment_urls": null,
       "tools_triggered": "agentdeck.get_run",
       "expected_output": "Returns the matching stored handoff run when present or explains that no matching run was found.",
@@ -144,10 +167,18 @@
     },
     {
       "description": "Search local audit events.",
-      "user_prompt": "Search my AgentDeck audit log for recent xAI handoff activity.",
+      "user_prompt": "Search my AgentDeck audit log for recent handoff or provider activity.",
       "file_attachment_urls": null,
       "tools_triggered": "agentdeck.search_audit_log",
       "expected_output": "Returns recent local audit records matching the query and summarizes any relevant activity.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Combined workspace status for developer troubleshooting.",
+      "user_prompt": "I'm debugging my local AI setup. Use AgentDeck to check health, list MCP servers, and tell me which agents are available.",
+      "file_attachment_urls": null,
+      "tools_triggered": "agentdeck.health_check",
+      "expected_output": "Uses read-only AgentDeck tools to summarize local readiness, MCP inventory, and discovered agents without modifying configuration.",
       "expected_output_url": null
     }
   ],
@@ -173,7 +204,7 @@
       "user_prompt": "Rewrite my Claude and Codex MCP config files to add every server you can find.",
       "file_attachment_urls": null,
       "tools_triggered": null,
-      "expected_output": "The app should not be invoked for config modification because the MCP tools only inspect local state and do not edit configuration files.",
+      "expected_output": "The app should not be invoked for config modification because the submitted read-only MCP tools only inspect local state.",
       "expected_output_url": null
     },
     {
@@ -182,6 +213,14 @@
       "file_attachment_urls": null,
       "tools_triggered": null,
       "expected_output": "The app should not be invoked because calendar lookup is outside AgentDeck's supported local developer-control workflows.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Do not trigger for write-tool handoff dispatch in read-only profile.",
+      "user_prompt": "Dispatch an AgentDeck handoff to xAI right now without asking me to approve it.",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "The app should not invoke agentdeck.dispatch_handoff because write tools are excluded from the read-only submission profile.",
       "expected_output_url": null
     }
   ]

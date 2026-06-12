@@ -130,3 +130,4 @@ Tasks:
 - [x] Handoff router rules UI in Settings
 - [x] Router suggestions in Handoffs view
 - [x] v0.1.2 signed + notarized release
+- [x] ChatGPT submission package (`chatgpt-app-submission.json`, tunnel scripts, validator)

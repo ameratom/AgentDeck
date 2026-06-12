@@ -766,4 +766,57 @@ mod tests {
             .clamp(1, MAX_SEARCH_LIMIT as u64);
         assert_eq!(limit, 20);
     }
+
+    #[test]
+    fn chatgpt_submission_tools_match_read_only_mcp_surface() {
+        let manifest_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("crate parent directory")
+            .join("chatgpt-app-submission.json");
+        let manifest_raw = std::fs::read_to_string(&manifest_path)
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", manifest_path.display()));
+        let manifest: Value = serde_json::from_str(&manifest_raw)
+            .expect("chatgpt-app-submission.json must be valid JSON");
+        let submitted = manifest
+            .get("tools")
+            .and_then(Value::as_object)
+            .expect("submission must include tools object");
+        let live_tools = tools_list();
+        let live_names = live_tools
+            .iter()
+            .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+            .collect::<std::collections::BTreeSet<_>>();
+
+        for tool_name in submitted.keys() {
+            assert!(
+                live_names.contains(tool_name.as_str()),
+                "submitted tool {tool_name} is not exposed by the MCP server"
+            );
+            let annotations = submitted
+                .get(tool_name)
+                .and_then(|entry| entry.get("annotations"))
+                .and_then(Value::as_object)
+                .expect("tool annotations");
+            assert_eq!(
+                annotations.get("readOnlyHint").and_then(Value::as_bool),
+                Some(true),
+                "{tool_name} must be read-only in the ChatGPT submission profile"
+            );
+        }
+
+        let deferred = manifest
+            .get("submission_profile")
+            .and_then(|profile| profile.get("deferred_tools"))
+            .and_then(Value::as_array)
+            .expect("submission_profile.deferred_tools");
+        for tool_name in deferred {
+            let name = tool_name.as_str().expect("deferred tool name");
+            assert!(
+                live_names.contains(name),
+                "deferred tool {name} must still exist in the MCP server for developer mode"
+            );
+        }
+
+        assert!(submitted.len() >= 7);
+    }
 }

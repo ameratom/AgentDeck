@@ -4,6 +4,7 @@ src-tauri/target/
 *.log
 .DS_Store
 scripts/notarize.local.env
+scripts/chatgpt-mcp-tunnel.local.env
 .claude/settings.local.json
 .env
 .env.*
