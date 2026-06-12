@@ -56,6 +56,13 @@ fn evict_cached_api_key(slot_id: &str) {
     }
 }
 
+#[cfg(test)]
+fn clear_api_key_cache() {
+    if let Ok(mut cache) = api_key_cache().lock() {
+        cache.clear();
+    }
+}
+
 /// Encrypt and persist an API key in the app-local secret store, keyed by slot.
 fn store_provider_secret(
     path: &Path,
@@ -147,7 +154,12 @@ fn credential_state_at(
     }
 
     let slot = credential_slot_id(definition);
-    if get_cached_api_key(slot).is_some() {
+    let cache_matches_database = database_path.is_none_or(|path| {
+        storage::resolve_database_path(None)
+            .ok()
+            .is_some_and(|home| home == path)
+    });
+    if cache_matches_database && get_cached_api_key(slot).is_some() {
         return CredentialState {
             status: CredentialStatus::Stored,
             error: None,
@@ -1788,6 +1800,7 @@ mod tests {
 
     #[test]
     fn stale_database_flag_does_not_report_stored_credentials() {
+        clear_api_key_cache();
         let dir = std::env::temp_dir().join(format!(
             "agentdeck-stale-credential-{}",
             Utc::now().timestamp_nanos_opt().unwrap_or(0)
@@ -1810,6 +1823,7 @@ mod tests {
 
     #[test]
     fn ciphertext_without_master_key_is_unreadable() {
+        clear_api_key_cache();
         let dir = std::env::temp_dir().join(format!(
             "agentdeck-unreadable-credential-{}",
             Utc::now().timestamp_nanos_opt().unwrap_or(0)
@@ -2027,5 +2041,34 @@ mod tests {
             grok.metadata.get("subscriptionActive").map(String::as_str),
             Some("true")
         );
+    }
+
+    #[test]
+    #[ignore = "live smoke: temporarily corrupts secret.key with backup/restore"]
+    fn live_smoke_corrupt_master_key_surfaces_unreadable() {
+        let database_path = storage::resolve_database_path(None).expect("home database");
+        let key_path = database_path
+            .parent()
+            .expect("database parent")
+            .join("secret.key");
+        let backup_path = key_path.with_extension("key.smoke-bak");
+        let backup = std::fs::read(&key_path).expect("secret.key should exist");
+        std::fs::write(&backup_path, &backup).expect("backup secret.key");
+        std::fs::write(&key_path, b"corrupted-smoke-test-key!!!!!!")
+            .expect("corrupt secret.key");
+
+        clear_api_key_cache();
+        let definition = find_definition("anthropic").unwrap();
+        let state = credential_state_at(&definition, Some(&database_path));
+
+        let _ = std::fs::write(&key_path, backup);
+        let _ = std::fs::remove_file(&backup_path);
+
+        assert_eq!(state.status, CredentialStatus::Unreadable);
+        assert!(state
+            .error
+            .unwrap_or_default()
+            .to_lowercase()
+            .contains("master key"));
     }
 }
