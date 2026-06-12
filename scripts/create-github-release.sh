@@ -2,9 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TAG="${1:-v0.1.0}"
-DMG_GLOB="$ROOT_DIR/src-tauri/target/release/bundle/dmg/"*.dmg
-NOTES_FILE="$ROOT_DIR/RELEASE_NOTES_v0.1.0.md"
+TAG="${1:-v0.1.1}"
+DMG_GLOB="$ROOT_DIR/src-tauri/target/release/bundle/dmg/*.dmg"
+NOTES_FILE="$ROOT_DIR/RELEASE_NOTES_v0.1.1.md"
 
 if ! command -v gh >/dev/null 2>&1; then
   echo "GitHub CLI (gh) is required." >&2

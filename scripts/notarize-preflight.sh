@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_BUNDLE="$ROOT_DIR/src-tauri/target/release/bundle/macos/AgentDeck.app"
-DMG_GLOB="$ROOT_DIR/src-tauri/target/release/bundle/dmg/"*.dmg
+DMG_GLOB="$ROOT_DIR/src-tauri/target/release/bundle/dmg/*.dmg"
 
 echo "AgentDeck notarization preflight"
 echo
