@@ -7,6 +7,20 @@
     "grok-mcp": {
       "command": "/Users/claudemccready/Desktop/Scripts/Codex/AgentDeck/scripts/grok-mcp-launcher.sh",
       "args": []
+    },
+    "filesystem": {
+      "command": "/Users/claudemccready/Desktop/Scripts/Codex/AgentDeck/scripts/filesystem-mcp-launcher.sh",
+      "args": ["/Users/claudemccready/Desktop/Scripts/Codex/AgentDeck"],
+      "env": {
+        "AGENTDECK_PROJECT_ROOT": "/Users/claudemccready/Desktop/Scripts/Codex/AgentDeck"
+      }
+    },
+    "git": {
+      "command": "/Users/claudemccready/Desktop/Scripts/Codex/AgentDeck/scripts/git-mcp-launcher.sh",
+      "args": ["/Users/claudemccready/Desktop/Scripts/Codex/AgentDeck"],
+      "env": {
+        "AGENTDECK_PROJECT_ROOT": "/Users/claudemccready/Desktop/Scripts/Codex/AgentDeck"
+      }
     }
   }
 }

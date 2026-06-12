@@ -2,9 +2,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TAG="${1:-v0.1.1}"
+TAG="${1:-v0.1.2}"
+VERSION="${TAG#v}"
 DMG_GLOB="$ROOT_DIR/src-tauri/target/release/bundle/dmg/*.dmg"
-NOTES_FILE="$ROOT_DIR/RELEASE_NOTES_v0.1.1.md"
+NOTES_FILE="$ROOT_DIR/RELEASE_NOTES_${VERSION}.md"
 
 if ! command -v gh >/dev/null 2>&1; then
   echo "GitHub CLI (gh) is required." >&2
@@ -13,6 +14,11 @@ fi
 
 if ! gh auth status >/dev/null 2>&1; then
   echo "Run: gh auth login" >&2
+  exit 1
+fi
+
+if [[ ! -f "$NOTES_FILE" ]]; then
+  echo "Missing release notes: $NOTES_FILE" >&2
   exit 1
 fi
 
