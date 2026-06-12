@@ -266,7 +266,7 @@ fn detect_known_configs() -> Vec<DetectedConfig> {
         ("Codex", home.join(".codex/config.toml"), true),
         ("Claude Code", home.join(".claude.json"), true),
         ("Claude Code", home.join(".claude/settings.json"), true),
-        ("Hermes", home.join(".hermes/config.yaml"), false),
+        ("Hermes", home.join(".hermes/config.yaml"), true),
         ("Hermes", home.join(".hermes/config.json"), true),
         ("OpenClaw", home.join(".openclaw/config.json"), true),
         ("LM Studio", home.join(".lmstudio/mcp.json"), true),
@@ -317,7 +317,7 @@ fn inspect_config(kind: &str, path: &Path, parse_content: bool) -> DetectedConfi
     let Some(format) = format else {
         return config;
     };
-    if !matches!(format, "json" | "toml") {
+    if !matches!(format, "json" | "toml" | "yaml") {
         return config;
     }
     match fs::metadata(path) {
@@ -348,6 +348,7 @@ fn inspect_config(kind: &str, path: &Path, parse_content: bool) -> DetectedConfi
     let parsed = match format {
         "json" => parse_json_keys(&contents),
         "toml" => parse_toml_keys(&contents),
+        "yaml" => parse_yaml_keys(&contents),
         _ => return config,
     };
 
@@ -390,6 +391,18 @@ fn parse_toml_keys(contents: &str) -> Result<Vec<String>, String> {
         .as_table()
         .map(|table| sanitized_keys(table.keys()))
         .unwrap_or_default())
+}
+
+fn parse_yaml_keys(contents: &str) -> Result<Vec<String>, String> {
+    let value: serde_yaml::Value =
+        serde_yaml::from_str(contents).map_err(|error| error.to_string())?;
+    let keys: Vec<String> = value
+        .as_mapping()
+        .into_iter()
+        .flatten()
+        .filter_map(|(key, _)| key.as_str().map(str::to_owned))
+        .collect();
+    Ok(sanitized_keys(keys.iter()))
 }
 
 fn sanitized_keys<'a>(keys: impl Iterator<Item = &'a String>) -> Vec<String> {
@@ -753,6 +766,38 @@ mod tests {
     fn json_parser_redacts_secret_like_keys() {
         let keys = parse_json_keys(r#"{"mcpServers": {}, "api_token": "not-returned"}"#).unwrap();
         assert_eq!(keys, vec!["[redacted-key]", "mcpServers"]);
+    }
+
+    #[test]
+    fn yaml_parser_extracts_top_level_keys_and_redacts_secrets() {
+        let keys = parse_yaml_keys(
+            "model:\n  default: grok\nproviders: {}\napi_key: hidden\nagent:\n  max_turns: 90",
+        )
+        .unwrap();
+        assert!(keys.contains(&"model".to_owned()));
+        assert!(keys.contains(&"providers".to_owned()));
+        assert!(keys.contains(&"agent".to_owned()));
+        assert!(keys.contains(&"[redacted-key]".to_owned()));
+        assert!(!keys.iter().any(|key| key == "api_key"));
+    }
+
+    #[test]
+    fn inspect_config_parses_existing_hermes_yaml_when_present() {
+        let Some(home) = env::var_os("HOME").map(PathBuf::from) else {
+            return;
+        };
+        let path = home.join(".hermes/config.yaml");
+        if !path.is_file() {
+            return;
+        }
+
+        let status = inspect_config("Hermes", &path, true);
+        assert!(status.exists);
+        assert_eq!(status.format.as_deref(), Some("yaml"));
+        assert_eq!(status.valid, Some(true));
+        assert!(!status.top_level_keys.is_empty());
+        assert!(status.top_level_keys.contains(&"agent".to_owned()));
+        assert!(status.error.is_none());
     }
 
     #[test]
