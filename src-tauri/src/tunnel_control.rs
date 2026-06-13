@@ -206,12 +206,18 @@ pub fn open_operator_ui(database_path: &Path) -> Result<TunnelStatus, String> {
 }
 
 pub fn openai_apps_challenge_token() -> Option<String> {
+    tunnel_config_value("OPENAI_APPS_CHALLENGE_TOKEN")
+}
+
+pub fn tunnel_config_value(key: &str) -> Option<String> {
     let database_path = storage::home_database_path().ok()?;
     let paths = tunnel_paths(&database_path).ok()?;
     load_config(&paths.config)
         .ok()?
-        .remove("OPENAI_APPS_CHALLENGE_TOKEN")
-        .filter(|token| !token.trim().is_empty())
+        .get(key)
+        .map(String::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_owned)
 }
 
 fn tunnel_paths(database_path: &Path) -> Result<TunnelPaths, String> {

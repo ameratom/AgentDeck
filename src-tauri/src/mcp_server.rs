@@ -193,7 +193,7 @@ fn handle_tool_call(params: Option<Value>, request_id: Option<Value>) -> Result<
         .unwrap_or_else(|| json!({}));
 
     match execute_agentdeck_tool(tool_name, arguments) {
-        Ok(text) => Ok(tool_content_from_text(&text)),
+        Ok((text, is_error)) => Ok(tool_content_from_text(&text, is_error)),
         Err(message) => Err(jsonrpc_error(
             request_id,
             -32603,
@@ -203,7 +203,46 @@ fn handle_tool_call(params: Option<Value>, request_id: Option<Value>) -> Result<
     }
 }
 
-pub fn execute_agentdeck_tool(tool_name: &str, arguments: Value) -> Result<String, String> {
+pub fn request_is_notification_only(body: &str) -> bool {
+    let value: Value = match serde_json::from_str(body) {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+
+    match value {
+        Value::Array(items) => !items.is_empty() && items.iter().all(message_is_notification),
+        other => message_is_notification(&other),
+    }
+}
+
+fn message_is_notification(value: &Value) -> bool {
+    value.get("method").and_then(Value::as_str).is_some() && value.get("id").is_none()
+}
+
+pub fn truncate_tool_response(value: Value, notice: &str) -> Value {
+    let Some(result) = value.get("result").cloned() else {
+        return value;
+    };
+    let Some(text) = result
+        .get("content")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+        .and_then(|item| item.get("text"))
+        .and_then(Value::as_str)
+    else {
+        return value;
+    };
+
+    let mut truncated = text.chars().take(60_000).collect::<String>();
+    truncated.push_str("\n\n");
+    truncated.push_str(notice);
+
+    let mut next = value;
+    next["result"] = tool_content_from_text(&truncated, false);
+    next
+}
+
+pub fn execute_agentdeck_tool(tool_name: &str, arguments: Value) -> Result<(String, bool), String> {
     let caller = caller_agent_id(&arguments);
     let database_path = database_path()?;
     let connection = storage::open_database(&database_path)?;
@@ -222,8 +261,14 @@ pub fn execute_agentdeck_tool(tool_name: &str, arguments: Value) -> Result<Strin
         }
         "agentdeck.health_check" => serde_json::to_value(commands::run_preflight())
             .map_err(|error| format!("failed to serialize health check: {error}"))?,
-        "agentdeck.get_run" => serde_json::to_value(get_run(arguments)?)
-            .map_err(|error| format!("failed to serialize handoff run: {error}"))?,
+        "agentdeck.get_run" => match get_run(arguments) {
+            Ok(value) => value,
+            Err(message) if message.contains("not found") => json!({
+                "run": null,
+                "message": message,
+            }),
+            Err(message) => return Err(message),
+        },
         "agentdeck.search_audit_log" => serde_json::to_value(search_audit_log(arguments)?)
             .map_err(|error| format!("failed to serialize audit search: {error}"))?,
         "agentdeck.dispatch_handoff" => serde_json::to_value(dispatch_handoff_tool(
@@ -243,8 +288,12 @@ pub fn execute_agentdeck_tool(tool_name: &str, arguments: Value) -> Result<Strin
         }
         other => return Err(format!("unknown AgentDeck tool: {other}")),
     };
-    serde_json::to_string_pretty(&value)
-        .map_err(|error| format!("failed to encode tool result: {error}"))
+    let is_error = tool_name == "agentdeck.get_run"
+        && value.get("run").is_some_and(Value::is_null)
+        && value.get("message").is_some();
+    let text = serde_json::to_string_pretty(&value)
+        .map_err(|error| format!("failed to encode tool result: {error}"))?;
+    Ok((text, is_error))
 }
 
 fn caller_agent_id(arguments: &Value) -> String {
@@ -283,7 +332,7 @@ fn toggle_mcp_server_tool(arguments: Value) -> Result<McpToggleResult, String> {
     mcp::toggle_server_config(server_id, enabled)
 }
 
-fn tool_content_from_text(text: &str) -> Value {
+fn tool_content_from_text(text: &str, is_error: bool) -> Value {
     json!({
         "content": [
             {
@@ -291,7 +340,7 @@ fn tool_content_from_text(text: &str) -> Value {
                 "text": text,
             }
         ],
-        "isError": false,
+        "isError": is_error,
     })
 }
 
@@ -755,6 +804,16 @@ mod tests {
     fn rejects_unknown_run_ids() {
         let result = get_run(json!({"runId":"run:test"}));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn detects_notification_only_payloads() {
+        assert!(request_is_notification_only(
+            r#"{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}"#
+        ));
+        assert!(!request_is_notification_only(
+            r#"{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}"#
+        ));
     }
 
     #[test]

@@ -209,7 +209,40 @@ else
 fi
 
 echo
-echo "5. Submission validator"
+echo "5. OAuth protected-resource metadata"
+prm_resource="$(curl -sS --max-time 10 "http://127.0.0.1:7823/.well-known/oauth-protected-resource/mcp" | jq -r '.resource // empty')"
+if [[ -n "$prm_resource" ]]; then
+  pass "local PRM resource: $prm_resource"
+else
+  fail "local PRM metadata missing resource field"
+fi
+
+expected_public="${MCP_PUBLIC_RESOURCE_URL:-}"
+if [[ -z "$expected_public" && "${AGENTDECK_MCP_URL:-}" == https://* ]]; then
+  expected_public="${AGENTDECK_MCP_URL}"
+fi
+if [[ -n "$expected_public" ]]; then
+  expected_public="${expected_public%/}"
+  if [[ "$prm_resource" == "$expected_public" ]]; then
+    pass "PRM resource matches configured public MCP URL"
+  else
+    fail "PRM resource mismatch (expected $expected_public, got $prm_resource)"
+  fi
+fi
+
+if [[ "${AGENTDECK_MCP_URL:-}" == https://* ]]; then
+  remote_prm="$(curl -sS --max-time 10 "${AGENTDECK_MCP_URL%/}/../.well-known/oauth-protected-resource/mcp" 2>/dev/null | jq -r '.resource // empty' || true)"
+  remote_origin="$(echo "${AGENTDECK_MCP_URL}" | sed -E 's#/mcp$##')"
+  remote_prm="$(curl -sS --max-time 10 "${remote_origin}/.well-known/oauth-protected-resource/mcp" | jq -r '.resource // empty' 2>/dev/null || true)"
+  if [[ -n "$remote_prm" && "$remote_prm" == "$expected_public" ]]; then
+    pass "public origin PRM matches configured public MCP URL"
+  elif [[ -n "$remote_prm" ]]; then
+    fail "public origin PRM mismatch (expected ${expected_public:-$remote_prm}, got $remote_prm)"
+  fi
+fi
+
+echo
+echo "6. Submission validator"
 if "$ROOT_DIR/scripts/validate-chatgpt-submission.sh" >/dev/null 2>&1; then
   pass "chatgpt-app-submission.json validates"
 else

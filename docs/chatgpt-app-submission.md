@@ -110,3 +110,4 @@ Also prepare (not in JSON import):
 | `tools/list` empty | Restart AgentDeck; confirm `:7823` is not blocked |
 | Write tool requested | Expected in dev mode only; read-only profile excludes write tools |
 | Unsafe URL for localhost | Use Secure MCP Tunnel, not raw `127.0.0.1` in public connector URL |
+| Tool calls fail but tunnel is connected | Set `MCP_PUBLIC_RESOURCE_URL` in `chatgpt-mcp-tunnel.env` to the same HTTPS URL ChatGPT uses; restart AgentDeck and confirm `/.well-known/oauth-protected-resource/mcp` returns that resource |
