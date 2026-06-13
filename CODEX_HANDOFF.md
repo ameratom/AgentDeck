@@ -81,6 +81,7 @@ The first release is **observability + controlled chat routing**, not full auton
 
 - Import file: `chatgpt-app-submission.json` (read-only v1 profile, 7 tools)
 - Guide: `docs/chatgpt-app-submission.md`
+- Test prompts: `docs/chatgpt-test-prompts.md`
 - Validate: `./scripts/validate-chatgpt-submission.sh`
 - Tunnel helper: `scripts/run-chatgpt-mcp-tunnel.sh`
 - Tunnel UI: MCP view → Start tunnel → Open operator UI

@@ -68,6 +68,8 @@ AgentDeck listens on loopback only. ChatGPT cannot call `http://127.0.0.1` direc
 
 See [Connect from ChatGPT](https://developers.openai.com/apps-sdk/deploy/connect-chatgpt) and [Submit your app](https://developers.openai.com/apps-sdk/deploy/submission).
 
+Test prompts for developer mode and dashboard review: [`chatgpt-test-prompts.md`](chatgpt-test-prompts.md)
+
 ## Validate before submit
 
 ```bash

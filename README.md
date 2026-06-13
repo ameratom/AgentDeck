@@ -35,6 +35,7 @@ Artifacts:
 - [MCP server](docs/agentdeck-mcp-server.md)
 - [MCP connectors](docs/mcp-connectors.md)
 - [ChatGPT app submission](docs/chatgpt-app-submission.md)
+- [ChatGPT test prompts](docs/chatgpt-test-prompts.md)
 - [Privacy policy](docs/privacy-policy.md)
 - [Terms of service](docs/terms-of-service.md)
 - [Distribution](docs/distribution.md)
