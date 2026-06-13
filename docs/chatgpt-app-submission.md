@@ -4,7 +4,7 @@ AgentDeck exposes a local MCP server for ChatGPT via [Secure MCP Tunnel](https:/
 
 Submission import file: [`chatgpt-app-submission.json`](../chatgpt-app-submission.json)
 
-## Submission profile (v0.1.3)
+## Submission profile (v0.1.4)
 
 This submission includes **read-only** MCP tools only:
 

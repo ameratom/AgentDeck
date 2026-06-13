@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TAG="${1:-v0.1.3}"
+TAG="${1:-v0.1.4}"
 DMG_GLOB="$ROOT_DIR/src-tauri/target/release/bundle/dmg/*.dmg"
 NOTES_FILE="$ROOT_DIR/RELEASE_NOTES_${TAG}.md"
 

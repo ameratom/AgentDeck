@@ -8,11 +8,11 @@ Build folder:
 
 Remote: `https://github.com/ameratom/AgentDeck` (`main`)
 
-Latest release: [v0.1.3](https://github.com/ameratom/AgentDeck/releases/tag/v0.1.3)
+Latest release: [v0.1.4](https://github.com/ameratom/AgentDeck/releases/tag/v0.1.4)
 
 ## Current Status (June 2026)
 
-Phases **0–11** are complete. v0.1.3 is published.
+Phases **0–11** are complete. v0.1.4 ships ChatGPT MCP connector fixes.
 
 ### Shipped
 
@@ -31,7 +31,8 @@ Phases **0–11** are complete. v0.1.3 is published.
 | Project-scoped config discovery, graph context, chat, and handoffs | ✔ |
 | Per-project filesystem/Git MCP profiles with validated exports | ✔ |
 | Secure MCP Tunnel controls (MCP view) | ✔ |
-| Signed + notarized macOS DMG | ✔ v0.1.3 |
+| ChatGPT OAuth PRM + Streamable HTTP MCP fixes | ✔ v0.1.4 |
+| Signed + notarized macOS DMG | ✔ v0.1.4 |
 
 ### Project MCP config (`.mcp.json`)
 
@@ -55,10 +56,16 @@ cd src-tauri && cargo test
 source scripts/notarize.local.env
 pnpm tauri build
 ./scripts/notarize-macos.sh
-./scripts/create-github-release.sh v0.1.3
+./scripts/create-github-release.sh v0.1.4
 ```
 
-Checklist: `RELEASE_CHECKLIST_v0.1.3.md`
+### ChatGPT tunnel
+
+```bash
+./scripts/smoke-chatgpt-tunnel.sh
+```
+
+Set `MCP_PUBLIC_RESOURCE_URL` in `chatgpt-mcp-tunnel.env` to the HTTPS URL ChatGPT uses. Guide: `docs/chatgpt-app-submission.md`
 
 ## Mission
 
@@ -75,10 +82,10 @@ The first release is **observability + controlled chat routing**, not full auton
 - Import file: `chatgpt-app-submission.json` (read-only v1 profile, 7 tools)
 - Guide: `docs/chatgpt-app-submission.md`
 - Validate: `./scripts/validate-chatgpt-submission.sh`
-- Tunnel helper: `scripts/run-chatgpt-mcp-tunnel.sh` (uses `~/Library/Application Support/com.agentdeck.desktop/chatgpt-mcp-tunnel.env`)
+- Tunnel helper: `scripts/run-chatgpt-mcp-tunnel.sh`
 - Tunnel UI: MCP view → Start tunnel → Open operator UI
 
 ## Next candidates
 
-1. Submit ChatGPT app via Platform dashboard after tunnel smoke test
-2. Phase 12: project-aware onboarding, ChatGPT submission v2 metadata, Claude Code MCP serve export
+1. Submit ChatGPT app via Platform dashboard after tunnel smoke test passes
+2. Phase 12: project-aware onboarding, Claude Code MCP serve export

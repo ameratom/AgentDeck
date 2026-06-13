@@ -8,7 +8,7 @@
     "category": "DEVELOPER_TOOLS"
   },
   "submission_profile": {
-    "agentdeck_version": "0.1.3",
+    "agentdeck_version": "0.1.4",
     "included_tools": "read_only_v1",
     "local_mcp_endpoint": "http://127.0.0.1:7823/mcp",
     "connection_modes": [
