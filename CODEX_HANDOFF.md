@@ -12,7 +12,7 @@ Latest release: [v0.1.3](https://github.com/ameratom/AgentDeck/releases/tag/v0.1
 
 ## Current Status (June 2026)
 
-Phases **0–11** are complete. v0.1.3 release build is ready to sign, notarize, and publish.
+Phases **0–11** are complete. v0.1.3 is published.
 
 ### Shipped
 
@@ -31,7 +31,7 @@ Phases **0–11** are complete. v0.1.3 release build is ready to sign, notarize,
 | Project-scoped config discovery, graph context, chat, and handoffs | ✔ |
 | Per-project filesystem/Git MCP profiles with validated exports | ✔ |
 | Secure MCP Tunnel controls (MCP view) | ✔ |
-| Signed + notarized macOS DMG | ✔ v0.1.2 (v0.1.3 pending publish) |
+| Signed + notarized macOS DMG | ✔ v0.1.3 |
 
 ### Project MCP config (`.mcp.json`)
 
@@ -80,6 +80,5 @@ The first release is **observability + controlled chat routing**, not full auton
 
 ## Next candidates
 
-1. Publish v0.1.3 signed + notarized DMG to GitHub Releases
-2. Submit ChatGPT app via Platform dashboard after tunnel smoke test
-3. Phase 12: project-aware onboarding, ChatGPT submission v2 metadata, Claude Code MCP serve export
+1. Submit ChatGPT app via Platform dashboard after tunnel smoke test
+2. Phase 12: project-aware onboarding, ChatGPT submission v2 metadata, Claude Code MCP serve export
