@@ -156,3 +156,17 @@ Tasks:
 - [x] Export project MCP connector profile during onboarding (AgentDeck HTTP, filesystem, git, Claude Code serve)
 - [x] Include `claude mcp serve` in per-project Claude/Codex connector exports
 - [x] Always include AgentDeck HTTP MCP in connector export profiles
+
+## Phase 13
+
+Grok-first integration, ChatGPT v1.1 research tools, and ChatGPT test seam fixes.
+
+Tasks:
+
+- [x] Resolve `get_run` by `runId`, `auditId`, or `conversationId`; enrich audit rows with `runId`
+- [x] OR-friendly audit search tokenization
+- [x] Enriched macOS PATH discovery for GUI app scans
+- [x] Export `grok-mcp` and `agentdeck-xai-research-mcp` in project connector profiles
+- [x] Grok-default handoff routing fallback and onboarding defaults
+- [x] Proxy read-only xAI Research tools through AgentDeck HTTP MCP
+- [x] ChatGPT submission package v1.1 (`read_only_v1_1`)

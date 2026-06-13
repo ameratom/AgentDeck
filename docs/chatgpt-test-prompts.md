@@ -100,7 +100,7 @@ Show me how my local agents, providers, tools, and configs are connected in Agen
 Search my AgentDeck audit log for handoff activity, then fetch my most recent handoff run and summarize its result.
 ```
 
-**Pass:** Fetches a stored run or explains that none was found — should not hard-fail.
+**Pass:** Fetches a stored run using `runId`, `auditId`, or `conversationId` from audit search (handoff rows include `runId` when linked) or explains that none was found — should not hard-fail.
 
 ---
 

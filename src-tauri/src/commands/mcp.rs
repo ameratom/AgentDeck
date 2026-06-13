@@ -79,12 +79,15 @@ pub async fn save_project_connector_settings(
             .execute(
                 "INSERT INTO project_connector_settings
                     (project_id, filesystem_enabled, git_enabled, claude_code_serve_enabled,
+                     grok_mcp_enabled, xai_research_mcp_enabled,
                      claude_export_path, codex_export_path, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
                  ON CONFLICT(project_id) DO UPDATE SET
                     filesystem_enabled = excluded.filesystem_enabled,
                     git_enabled = excluded.git_enabled,
                     claude_code_serve_enabled = excluded.claude_code_serve_enabled,
+                    grok_mcp_enabled = excluded.grok_mcp_enabled,
+                    xai_research_mcp_enabled = excluded.xai_research_mcp_enabled,
                     claude_export_path = excluded.claude_export_path,
                     codex_export_path = excluded.codex_export_path,
                     updated_at = excluded.updated_at",
@@ -93,6 +96,8 @@ pub async fn save_project_connector_settings(
                     if settings.filesystem_enabled { 1_i64 } else { 0_i64 },
                     if settings.git_enabled { 1_i64 } else { 0_i64 },
                     if settings.claude_code_serve_enabled { 1_i64 } else { 0_i64 },
+                    if settings.grok_mcp_enabled { 1_i64 } else { 0_i64 },
+                    if settings.xai_research_mcp_enabled { 1_i64 } else { 0_i64 },
                     settings.claude_export_path,
                     settings.codex_export_path,
                     settings.updated_at,
@@ -108,6 +113,8 @@ pub async fn save_project_connector_settings(
                 "filesystemEnabled": settings.filesystem_enabled,
                 "gitEnabled": settings.git_enabled,
                 "claudeCodeServeEnabled": settings.claude_code_serve_enabled,
+                "grokMcpEnabled": settings.grok_mcp_enabled,
+                "xaiResearchMcpEnabled": settings.xai_research_mcp_enabled,
             }),
         );
         Ok(settings)
@@ -673,6 +680,11 @@ fn default_connector_settings(
         filesystem_enabled: project_config_declares_server(&project_config, "filesystem"),
         git_enabled: project_config_declares_server(&project_config, "git"),
         claude_code_serve_enabled: project_config_declares_server(&project_config, "claude-code"),
+        grok_mcp_enabled: project_config_declares_server(&project_config, "grok-mcp"),
+        xai_research_mcp_enabled: project_config_declares_server(
+            &project_config,
+            "agentdeck-xai-research-mcp",
+        ),
         claude_export_path: export_directory
             .join("claude.mcp.json")
             .to_string_lossy()
@@ -709,6 +721,8 @@ fn write_connector_exports(
     settings.filesystem_enabled = request.filesystem_enabled;
     settings.git_enabled = request.git_enabled;
     settings.claude_code_serve_enabled = request.claude_code_serve_enabled;
+    settings.grok_mcp_enabled = request.grok_mcp_enabled;
+    settings.xai_research_mcp_enabled = request.xai_research_mcp_enabled;
     settings.updated_at = Utc::now().to_rfc3339();
 
     let launcher_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -717,6 +731,8 @@ fn write_connector_exports(
         .ok_or_else(|| "AgentDeck project root is unavailable".to_owned())?;
     let filesystem_launcher = launcher_root.join("scripts/filesystem-mcp-launcher.sh");
     let git_launcher = launcher_root.join("scripts/git-mcp-launcher.sh");
+    let grok_launcher = launcher_root.join("scripts/grok-mcp-launcher.sh");
+    let xai_research_launcher = launcher_root.join("scripts/xai-research-mcp-launcher.sh");
     let mut claude_servers = Map::new();
     claude_servers.insert(
         "agentdeck".to_owned(),
@@ -739,6 +755,18 @@ fn write_connector_exports(
     }
     if request.claude_code_serve_enabled {
         claude_servers.insert("claude-code".to_owned(), claude_code_serve_json());
+    }
+    if request.grok_mcp_enabled {
+        claude_servers.insert(
+            "grok-mcp".to_owned(),
+            launcher_json(&grok_launcher),
+        );
+    }
+    if request.xai_research_mcp_enabled {
+        claude_servers.insert(
+            "agentdeck-xai-research-mcp".to_owned(),
+            launcher_json(&xai_research_launcher),
+        );
     }
     let claude = json!({ "mcpServers": claude_servers });
     let claude_payload = serde_json::to_vec_pretty(&claude)
@@ -767,6 +795,18 @@ fn write_connector_exports(
         codex_servers.insert(
             "claude-code".to_owned(),
             CodexConnectorDefinition::claude_code_serve(),
+        );
+    }
+    if request.grok_mcp_enabled {
+        codex_servers.insert(
+            "grok-mcp".to_owned(),
+            CodexConnectorDefinition::stdio_launcher(&grok_launcher),
+        );
+    }
+    if request.xai_research_mcp_enabled {
+        codex_servers.insert(
+            "agentdeck-xai-research-mcp".to_owned(),
+            CodexConnectorDefinition::stdio_launcher(&xai_research_launcher),
         );
     }
     let codex_payload = toml::to_string_pretty(&CodexConnectorExport {
@@ -822,6 +862,13 @@ fn connector_json(launcher: &Path, project_path: &str) -> Value {
     })
 }
 
+fn launcher_json(launcher: &Path) -> Value {
+    json!({
+        "command": launcher.to_string_lossy(),
+        "args": []
+    })
+}
+
 fn claude_code_serve_json() -> Value {
     json!({
         "command": "claude",
@@ -872,6 +919,15 @@ impl CodexConnectorDefinition {
         Self {
             command: Some("claude".to_owned()),
             args: Some(vec!["mcp".to_owned(), "serve".to_owned()]),
+            env: None,
+            url: None,
+        }
+    }
+
+    fn stdio_launcher(launcher: &Path) -> Self {
+        Self {
+            command: Some(launcher.to_string_lossy().into_owned()),
+            args: Some(Vec::new()),
             env: None,
             url: None,
         }
@@ -996,6 +1052,8 @@ mod tests {
                 filesystem_enabled: true,
                 git_enabled: true,
                 claude_code_serve_enabled: true,
+                grok_mcp_enabled: true,
+                xai_research_mcp_enabled: true,
             },
         )
         .unwrap();
@@ -1013,6 +1071,10 @@ mod tests {
         );
         assert_eq!(claude["mcpServers"]["git"]["args"][0], project.path);
         assert_eq!(claude["mcpServers"]["claude-code"]["command"], "claude");
+        assert!(claude["mcpServers"]["grok-mcp"]["command"]
+            .as_str()
+            .unwrap()
+            .ends_with("grok-mcp-launcher.sh"));
 
         let codex: toml::Value =
             toml::from_str(&fs::read_to_string(&settings.codex_export_path).unwrap()).unwrap();
@@ -1055,6 +1117,8 @@ mod tests {
                 filesystem_enabled: true,
                 git_enabled: true,
                 claude_code_serve_enabled: false,
+                grok_mcp_enabled: false,
+                xai_research_mcp_enabled: false,
             },
         );
         assert!(result.is_err());

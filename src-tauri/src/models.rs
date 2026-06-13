@@ -9,6 +9,8 @@ pub struct ToolStatus {
     pub available: bool,
     pub version: Option<String>,
     pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path_source: Option<String>,
     pub error: Option<String>,
 }
 
@@ -328,6 +330,8 @@ pub struct AuditEventRecord {
     pub status: String,
     pub model: String,
     pub conversation_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
     pub duration_ms: i64,
     pub created_at: String,
 }
@@ -417,6 +421,8 @@ pub struct ProjectConnectorSettings {
     pub filesystem_enabled: bool,
     pub git_enabled: bool,
     pub claude_code_serve_enabled: bool,
+    pub grok_mcp_enabled: bool,
+    pub xai_research_mcp_enabled: bool,
     pub claude_export_path: String,
     pub codex_export_path: String,
     pub claude_code_serve_export_path: String,
@@ -429,6 +435,8 @@ pub struct SaveProjectConnectorSettingsRequest {
     pub filesystem_enabled: bool,
     pub git_enabled: bool,
     pub claude_code_serve_enabled: bool,
+    pub grok_mcp_enabled: bool,
+    pub xai_research_mcp_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

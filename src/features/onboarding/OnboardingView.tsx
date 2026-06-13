@@ -116,6 +116,8 @@ export function OnboardingView({ initialScan, onComplete }: OnboardingViewProps)
       filesystemEnabled: true,
       gitEnabled: false,
       claudeCodeServeEnabled: false,
+      grokMcpEnabled: true,
+      xaiResearchMcpEnabled: true,
     };
 
     setBusy(true);
@@ -144,6 +146,8 @@ export function OnboardingView({ initialScan, onComplete }: OnboardingViewProps)
         filesystemEnabled: settings.filesystemEnabled,
         gitEnabled: settings.gitEnabled,
         claudeCodeServeEnabled: settings.claudeCodeServeEnabled,
+        grokMcpEnabled: settings.grokMcpEnabled,
+        xaiResearchMcpEnabled: settings.xaiResearchMcpEnabled,
       });
       setExportedConnectors(settings);
       setStatus(`Ready to export connectors for ${settings.projectName}.`);
@@ -515,8 +519,9 @@ export function OnboardingView({ initialScan, onComplete }: OnboardingViewProps)
             <h3>Export project MCP connectors</h3>
             <p>
               Generate validated Claude JSON and Codex TOML snippets for AgentDeck,
-              optional filesystem/git launchers, and Claude Code MCP serve. AgentDeck
-              does not modify third-party configs automatically.
+              optional filesystem/git launchers, Grok MCP, xAI Research MCP, and
+              Claude Code MCP serve. AgentDeck does not modify third-party configs
+              automatically.
             </p>
             <div className="mcp-project-connector-options">
               <label>
@@ -574,6 +579,45 @@ export function OnboardingView({ initialScan, onComplete }: OnboardingViewProps)
                 <span>
                   <strong>Claude Code MCP serve</strong>
                   <small>Expose Claude Code to other MCP clients.</small>
+                </span>
+              </label>
+              <label>
+                <input
+                  checked={connectorDefaults.grokMcpEnabled}
+                  disabled={busy}
+                  onChange={(event) =>
+                    setConnectorDefaults((current) =>
+                      current
+                        ? { ...current, grokMcpEnabled: event.target.checked }
+                        : current,
+                    )
+                  }
+                  type="checkbox"
+                />
+                <span>
+                  <strong>Grok MCP</strong>
+                  <small>Full Grok tool surface via grok-mcp-launcher.sh.</small>
+                </span>
+              </label>
+              <label>
+                <input
+                  checked={connectorDefaults.xaiResearchMcpEnabled}
+                  disabled={busy}
+                  onChange={(event) =>
+                    setConnectorDefaults((current) =>
+                      current
+                        ? {
+                            ...current,
+                            xaiResearchMcpEnabled: event.target.checked,
+                          }
+                        : current,
+                    )
+                  }
+                  type="checkbox"
+                />
+                <span>
+                  <strong>xAI Research MCP</strong>
+                  <small>Read-only web research tools for Codex and Claude.</small>
                 </span>
               </label>
             </div>

@@ -84,6 +84,68 @@ pub(crate) fn stable_hash(value: &str) -> u64 {
         })
 }
 
+pub fn lookup_handoff_run_id_by_audit_ref(
+    connection: &Connection,
+    audit_ref: &str,
+) -> Result<Option<String>, String> {
+    connection
+        .query_row(
+            "SELECT id FROM handoff_runs
+             WHERE audit_ref = ?1
+             ORDER BY created_at DESC
+             LIMIT 1",
+            [audit_ref],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| format!("failed to resolve handoff run by audit ref: {error}"))
+}
+
+pub fn lookup_handoff_run_id_by_thread_id(
+    connection: &Connection,
+    thread_id: &str,
+) -> Result<Option<String>, String> {
+    connection
+        .query_row(
+            "SELECT id FROM handoff_runs
+             WHERE thread_id = ?1
+             ORDER BY created_at DESC
+             LIMIT 1",
+            [thread_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| format!("failed to resolve handoff run by thread id: {error}"))
+}
+
+pub fn resolve_handoff_run_id(
+    connection: &Connection,
+    run_id: Option<&str>,
+    audit_id: Option<&str>,
+    conversation_id: Option<&str>,
+) -> Result<String, String> {
+    if let Some(run_id) = run_id.filter(|value| !value.trim().is_empty()) {
+        validate_identifier("run ID", run_id)?;
+        return Ok(run_id.to_owned());
+    }
+    if let Some(audit_id) = audit_id.filter(|value| !value.trim().is_empty()) {
+        validate_identifier("audit ID", audit_id)?;
+        if let Some(run_id) = lookup_handoff_run_id_by_audit_ref(connection, audit_id)? {
+            return Ok(run_id);
+        }
+        return Err(format!("no handoff run found for audit ID {audit_id}"));
+    }
+    if let Some(conversation_id) = conversation_id.filter(|value| !value.trim().is_empty()) {
+        if let Some(run_id) = lookup_handoff_run_id_by_thread_id(connection, conversation_id)? {
+            return Ok(run_id);
+        }
+        return Err(format!(
+            "no handoff run found for conversation ID {conversation_id}"
+        ));
+    }
+    Err("one of runId, auditId, or conversationId is required".to_owned())
+}
+
 pub fn load_handoff_run(connection: &Connection, run_id: &str) -> Result<HandoffRun, String> {
     let mut statement = connection
         .prepare(
@@ -659,6 +721,36 @@ fn migrate_database(connection: &Connection) -> Result<(), String> {
             )
             .map_err(|error| format!("failed to record schema migration: {error}"))?;
     }
+    if !migration_applied(connection, 11)? {
+        for column in ["grok_mcp_enabled", "xai_research_mcp_enabled"] {
+            let has_column = connection
+                .prepare("PRAGMA table_info(project_connector_settings)")
+                .and_then(|mut statement| {
+                    let columns = statement.query_map([], |row| row.get::<_, String>(1))?;
+                    Ok(columns
+                        .filter_map(Result::ok)
+                        .any(|name| name == column))
+                })
+                .map_err(|error| format!("failed to inspect connector settings schema: {error}"))?;
+            if !has_column {
+                connection
+                    .execute(
+                        &format!(
+                            "ALTER TABLE project_connector_settings
+                             ADD COLUMN {column} INTEGER NOT NULL DEFAULT 1"
+                        ),
+                        [],
+                    )
+                    .map_err(|error| format!("failed to add connector column {column}: {error}"))?;
+            }
+        }
+        connection
+            .execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+                params![11_i64, Utc::now().to_rfc3339()],
+            )
+            .map_err(|error| format!("failed to record schema migration: {error}"))?;
+    }
     Ok(())
 }
 
@@ -718,12 +810,13 @@ pub fn load_project_connector_settings(
     connection
         .query_row(
             "SELECT filesystem_enabled, git_enabled, claude_code_serve_enabled,
+                    grok_mcp_enabled, xai_research_mcp_enabled,
                     claude_export_path, codex_export_path, updated_at
              FROM project_connector_settings
              WHERE project_id = ?1",
             [&project.id],
             |row| {
-                let claude_export_path: String = row.get(3)?;
+                let claude_export_path: String = row.get(5)?;
                 let claude_code_serve_export_path = Path::new(&claude_export_path)
                     .parent()
                     .map(|directory| {
@@ -740,10 +833,12 @@ pub fn load_project_connector_settings(
                     filesystem_enabled: row.get::<_, i64>(0)? != 0,
                     git_enabled: row.get::<_, i64>(1)? != 0,
                     claude_code_serve_enabled: row.get::<_, i64>(2)? != 0,
+                    grok_mcp_enabled: row.get::<_, i64>(3)? != 0,
+                    xai_research_mcp_enabled: row.get::<_, i64>(4)? != 0,
                     claude_export_path,
-                    codex_export_path: row.get(4)?,
+                    codex_export_path: row.get(6)?,
                     claude_code_serve_export_path,
-                    updated_at: row.get(5)?,
+                    updated_at: row.get(7)?,
                 })
             },
         )
@@ -803,7 +898,18 @@ fn seed_default_router_rules(connection: &Connection) -> Result<(), String> {
             enabled: true,
             source_agent_id: None,
             keyword: Some("code".to_owned()),
-            target_provider_id: "codex".to_owned(),
+            target_provider_id: "xai".to_owned(),
+            target_model_id: None,
+            updated_at: updated_at.clone(),
+        },
+        RouterRule {
+            id: "router-rule:default-implement".to_owned(),
+            priority: 3,
+            name: "General implementation".to_owned(),
+            enabled: true,
+            source_agent_id: None,
+            keyword: Some("implement".to_owned()),
+            target_provider_id: "xai".to_owned(),
             target_model_id: None,
             updated_at,
         },
@@ -1180,6 +1286,7 @@ pub(crate) fn map_audit_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AuditEv
         status: row.get(2)?,
         model: row.get(3)?,
         conversation_id: row.get(4)?,
+        run_id: None,
         duration_ms: row.get(5)?,
         created_at: row.get(6)?,
     })
@@ -1436,10 +1543,11 @@ mod storage_tests {
 
         let connection = open_database(&path).unwrap();
         let rules = load_router_rules(&connection).unwrap();
-        assert_eq!(rules.len(), 3);
+        assert_eq!(rules.len(), 4);
         assert_eq!(rules[0].id, "router-rule:default-review");
         assert_eq!(rules[1].target_provider_id, "xai");
-        assert_eq!(rules[2].target_provider_id, "codex");
+        assert_eq!(rules[2].target_provider_id, "xai");
+        assert_eq!(rules[3].target_provider_id, "xai");
 
         replace_router_rules(&connection, &[]).unwrap();
         drop(connection);

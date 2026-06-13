@@ -124,6 +124,8 @@ export function saveProjectConnectorSettings(request: {
   filesystemEnabled: boolean;
   gitEnabled: boolean;
   claudeCodeServeEnabled: boolean;
+  grokMcpEnabled: boolean;
+  xaiResearchMcpEnabled: boolean;
 }): Promise<ProjectConnectorSettings> {
   return invoke<ProjectConnectorSettings>("save_project_connector_settings", {
     request,

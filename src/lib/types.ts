@@ -3,6 +3,7 @@ export interface ToolStatus {
   available: boolean;
   version: string | null;
   path: string | null;
+  pathSource?: string | null;
   error: string | null;
 }
 
@@ -219,6 +220,8 @@ export interface ProjectConnectorSettings {
   filesystemEnabled: boolean;
   gitEnabled: boolean;
   claudeCodeServeEnabled: boolean;
+  grokMcpEnabled: boolean;
+  xaiResearchMcpEnabled: boolean;
   claudeExportPath: string;
   codexExportPath: string;
   claudeCodeServeExportPath: string;

@@ -32,13 +32,13 @@ const provider = (id: string, name: string): ProviderAdapterStatus => ({
 });
 
 describe("handoff model helpers", () => {
-  it("prefers LM Studio as the default target provider", () => {
+  it("prefers xAI as the default target provider when available", () => {
     expect(
       selectDefaultTargetProvider([
         provider("xai", "xAI"),
         provider("lm-studio", "LM Studio"),
       ])?.id,
-    ).toBe("lm-studio");
+    ).toBe("xai");
   });
 
   it("prefers a newly scanned local source inventory", () => {

@@ -9,8 +9,10 @@ mod models;
 mod permissions;
 mod secrets;
 mod storage;
+mod tool_path;
 mod tray;
 mod tunnel_control;
+mod xai_research;
 
 use std::thread;
 use std::time::Duration;

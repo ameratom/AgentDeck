@@ -137,6 +137,8 @@ export function McpView() {
         filesystemEnabled: projectConnectors.filesystemEnabled,
         gitEnabled: projectConnectors.gitEnabled,
         claudeCodeServeEnabled: projectConnectors.claudeCodeServeEnabled,
+        grokMcpEnabled: projectConnectors.grokMcpEnabled,
+        xaiResearchMcpEnabled: projectConnectors.xaiResearchMcpEnabled,
       });
       const nextInventory = await scanMcpInventory();
       setProjectConnectors(nextSettings);
@@ -368,6 +370,45 @@ export function McpView() {
                   Export <code>claude mcp serve</code> for Codex and other MCP
                   clients.
                 </small>
+              </span>
+            </label>
+            <label>
+              <input
+                checked={projectConnectors.grokMcpEnabled}
+                disabled={savingProjectConnectors}
+                onChange={(event) =>
+                  setProjectConnectors((current) =>
+                    current
+                      ? { ...current, grokMcpEnabled: event.target.checked }
+                      : current,
+                  )
+                }
+                type="checkbox"
+              />
+              <span>
+                <strong>Grok MCP</strong>
+                <small>Export grok-mcp via the AgentDeck bridge env file.</small>
+              </span>
+            </label>
+            <label>
+              <input
+                checked={projectConnectors.xaiResearchMcpEnabled}
+                disabled={savingProjectConnectors}
+                onChange={(event) =>
+                  setProjectConnectors((current) =>
+                    current
+                      ? {
+                          ...current,
+                          xaiResearchMcpEnabled: event.target.checked,
+                        }
+                      : current,
+                  )
+                }
+                type="checkbox"
+              />
+              <span>
+                <strong>xAI Research MCP</strong>
+                <small>Read-only web research tools for local MCP clients.</small>
               </span>
             </label>
           </div>

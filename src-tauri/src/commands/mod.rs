@@ -27,6 +27,7 @@ use crate::models::{
     ProjectContext, ProviderHealth, ToolStatus,
 };
 use crate::storage;
+use crate::tool_path;
 
 const TOOL_NAMES: [&str; 17] = [
     "node", "npx", "pnpm", "npm", "rustc", "cargo", "git", "python", "python3", "uvx", "codex",
@@ -47,7 +48,8 @@ const TOOL_VERSION_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[tauri::command]
 pub fn run_preflight() -> PreflightResult {
-    let tools = inspect_tools(&TOOL_NAMES);
+    let processes = scan_agent_processes();
+    let tools = inspect_tools(&TOOL_NAMES, &processes);
     let providers = vec![check_lm_studio()];
     let ready = required_tools_available(&tools);
 
@@ -82,10 +84,10 @@ pub fn scan_environment_for_app(app: &tauri::AppHandle) -> EnvironmentScan {
 }
 
 fn scan_environment_for_project(project: Option<&crate::models::ProjectWorkspace>) -> EnvironmentScan {
-    let tools = inspect_tools(&TOOL_NAMES);
+    let processes = scan_agent_processes();
+    let tools = inspect_tools(&TOOL_NAMES, &processes);
     let xai = providers::xai_readiness();
     let provider_healths = vec![check_lm_studio(), xai.health.clone()];
-    let processes = scan_agent_processes();
     let configs = detect_known_configs(project.map(|project| Path::new(&project.path)));
     let grok = providers::grok_source_agent(&xai);
     let mut entities = normalize_entities(&tools, &provider_healths, &processes, &configs, grok);
@@ -119,14 +121,14 @@ fn scan_environment_for_project(project: Option<&crate::models::ProjectWorkspace
     }
 }
 
-fn inspect_tools(names: &[&str]) -> Vec<ToolStatus> {
+fn inspect_tools(names: &[&str], processes: &[DetectedProcess]) -> Vec<ToolStatus> {
     std::thread::scope(|scope| {
         let handles: Vec<_> = names
             .iter()
             .enumerate()
             .map(|(index, name)| {
                 let name = *name;
-                scope.spawn(move || (index, inspect_tool(name)))
+                scope.spawn(move || (index, inspect_tool(name, processes)))
             })
             .collect();
 
@@ -143,16 +145,19 @@ fn inspect_tools(names: &[&str]) -> Vec<ToolStatus> {
     })
 }
 
-fn inspect_tool(name: &str) -> ToolStatus {
-    let Some(path) = find_executable(name) else {
+fn inspect_tool(name: &str, processes: &[DetectedProcess]) -> ToolStatus {
+    let Some(resolved) = tool_path::find_executable(name, processes) else {
         return ToolStatus {
             name: name.to_owned(),
             available: false,
             version: None,
             path: None,
+            path_source: None,
             error: Some("unavailable".to_owned()),
         };
     };
+    let path = resolved.path;
+    let path_source = Some(resolved.source.label().to_owned());
 
     let path_text = path.to_string_lossy().into_owned();
     let (sender, receiver) = mpsc::channel();
@@ -180,6 +185,7 @@ fn inspect_tool(name: &str) -> ToolStatus {
                 available: output.status.success(),
                 version,
                 path: Some(path_text),
+                path_source: path_source.clone(),
                 error: (!output.status.success()).then(|| "version check failed".to_owned()),
             }
         }
@@ -188,6 +194,7 @@ fn inspect_tool(name: &str) -> ToolStatus {
             available: false,
             version: None,
             path: Some(path_text),
+            path_source: path_source.clone(),
             error: Some(error.to_string()),
         },
         Err(mpsc::RecvTimeoutError::Timeout) => ToolStatus {
@@ -195,6 +202,7 @@ fn inspect_tool(name: &str) -> ToolStatus {
             available: false,
             version: None,
             path: Some(path_text),
+            path_source: path_source.clone(),
             error: Some("version check timed out".to_owned()),
         },
         Err(mpsc::RecvTimeoutError::Disconnected) => ToolStatus {
@@ -202,17 +210,10 @@ fn inspect_tool(name: &str) -> ToolStatus {
             available: false,
             version: None,
             path: Some(path_text),
+            path_source: path_source.clone(),
             error: Some("version check worker exited".to_owned()),
         },
     }
-}
-
-fn find_executable(name: &str) -> Option<PathBuf> {
-    let path = env::var_os("PATH")?;
-
-    env::split_paths(&path)
-        .map(|directory| directory.join(name))
-        .find(|candidate| candidate.is_file())
 }
 
 fn check_lm_studio() -> ProviderHealth {
@@ -767,7 +768,7 @@ mod tests {
 
     #[test]
     fn missing_tool_is_reported_as_unavailable() {
-        let status = inspect_tool("agentdeck-tool-that-does-not-exist");
+        let status = inspect_tool("agentdeck-tool-that-does-not-exist", &[]);
         assert!(!status.available);
         assert_eq!(status.error.as_deref(), Some("unavailable"));
     }
@@ -780,6 +781,7 @@ mod tests {
                 available: true,
                 version: None,
                 path: None,
+                path_source: None,
                 error: None,
             })
             .to_vec();
@@ -852,6 +854,7 @@ mod tests {
             available: true,
             version: Some("codex-cli test".to_owned()),
             path: Some("/usr/local/bin/codex".to_owned()),
+            path_source: Some("PATH".to_owned()),
             error: None,
         }];
         let processes = vec![DetectedProcess {
@@ -880,6 +883,7 @@ mod tests {
             available: true,
             version: Some("codex-cli test".to_owned()),
             path: Some("/usr/local/bin/codex".to_owned()),
+            path_source: Some("PATH".to_owned()),
             error: None,
         }];
 
@@ -903,6 +907,7 @@ mod tests {
             available: true,
             version: Some("LM Studio CLI 0.3.0".to_owned()),
             path: Some("/Users/test/.lmstudio/bin/lms".to_owned()),
+            path_source: Some("common".to_owned()),
             error: None,
         }];
         let providers = vec![ProviderHealth {
@@ -1012,7 +1017,7 @@ mod tests {
     #[test]
     fn inspect_tools_completes_quickly() {
         let started = std::time::Instant::now();
-        let tools = inspect_tools(&TOOL_NAMES);
+        let tools = inspect_tools(&TOOL_NAMES, &[]);
         assert!(
             started.elapsed() < Duration::from_secs(8),
             "tool inspection exceeded 8 seconds"

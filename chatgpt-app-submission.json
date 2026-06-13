@@ -8,8 +8,8 @@
     "category": "DEVELOPER_TOOLS"
   },
   "submission_profile": {
-    "agentdeck_version": "0.1.4",
-    "included_tools": "read_only_v1",
+    "agentdeck_version": "0.1.5",
+    "included_tools": "read_only_v1_1",
     "local_mcp_endpoint": "http://127.0.0.1:7823/mcp",
     "connection_modes": [
       "secure_mcp_tunnel",
@@ -114,6 +114,42 @@
         "open_world_justification": "Does not publish, send, or modify public internet state or third-party systems.",
         "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
       }
+    },
+    "agentdeck.xai_research_search_web": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Runs a bounded web search through the user's configured xAI key and returns a summary with source URLs without modifying local files or configs.",
+        "open_world_justification": "Reads current public web pages through xAI's web_search tool to answer the user's research query.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "agentdeck.xai_research_answer_with_sources": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Answers a question using current web research and returns citations without writing to the local workspace.",
+        "open_world_justification": "Queries the public web through xAI to produce an evidence-backed answer for the user.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "agentdeck.xai_research_summarize_url": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Fetches and summarizes one public URL through xAI without changing local AgentDeck state.",
+        "open_world_justification": "Reads a user-supplied public HTTP or HTTPS URL through xAI web research.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
     }
   },
   "test_cases": [
@@ -179,6 +215,22 @@
       "file_attachment_urls": null,
       "tools_triggered": "agentdeck.health_check",
       "expected_output": "Uses read-only AgentDeck tools to summarize local readiness, MCP inventory, and discovered agents without modifying configuration.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Run a bounded web search through xAI.",
+      "user_prompt": "Use AgentDeck to search the current web for recent AgentDeck MCP release notes and summarize the findings with sources.",
+      "file_attachment_urls": null,
+      "tools_triggered": "agentdeck.xai_research_search_web",
+      "expected_output": "Returns a concise research summary with source URLs or explains that xAI is not configured locally.",
+      "expected_output_url": null
+    },
+    {
+      "description": "Answer a question with cited web research.",
+      "user_prompt": "Use AgentDeck to answer what MCP transports ChatGPT connectors support today and include source links.",
+      "file_attachment_urls": null,
+      "tools_triggered": "agentdeck.xai_research_answer_with_sources",
+      "expected_output": "Returns an evidence-backed answer with citations or explains that xAI is not configured locally.",
       "expected_output_url": null
     }
   ],

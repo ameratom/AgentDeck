@@ -80,6 +80,14 @@ pub fn sync_grok_mcp_bridge(database_path: &Path) -> Result<GrokMcpBridgeStatus,
     bridge_status_at(database_path)
 }
 
+pub fn read_xai_secret_for_research(database_path: &Path) -> Result<String, String> {
+    let api_key = read_xai_secret(database_path)?;
+    api_key.ok_or_else(|| {
+        "xAI API key is not configured. Save a key in AgentDeck Settings or sync the Grok MCP bridge."
+            .to_owned()
+    })
+}
+
 fn read_xai_secret(database_path: &Path) -> Result<Option<String>, String> {
     let Some(ciphertext) = storage::read_provider_secret(database_path, XAI_SLOT_ID)? else {
         return Ok(None);

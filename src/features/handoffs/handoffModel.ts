@@ -12,8 +12,21 @@ export function selectDefaultTargetProvider(
   providers: ProviderAdapterStatus[],
 ): ProviderAdapterStatus | null {
   return (
-    providers.find((provider) => provider.id === "lm-studio") ??
-    providers[0] ??
+    providers.find(
+      (provider) =>
+        provider.id === "xai" &&
+        provider.health.available &&
+        provider.models.length > 0,
+    ) ??
+    providers.find(
+      (provider) =>
+        provider.id === "lm-studio" &&
+        provider.health.available &&
+        provider.models.length > 0,
+    ) ??
+    providers.find(
+      (provider) => provider.health.available && provider.models.length > 0,
+    ) ??
     null
   );
 }

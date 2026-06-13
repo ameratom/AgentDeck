@@ -49,6 +49,8 @@ export interface ConnectorExportDefaults {
   filesystemEnabled: boolean;
   gitEnabled: boolean;
   claudeCodeServeEnabled: boolean;
+  grokMcpEnabled: boolean;
+  xaiResearchMcpEnabled: boolean;
 }
 
 export function stepIndex(step: OnboardingStepId): number {
@@ -148,10 +150,15 @@ export function toolAvailable(tools: ToolStatus[], name: string): boolean {
 }
 
 export function suggestConnectorDefaults(scan: EnvironmentScan): ConnectorExportDefaults {
+  const xaiReady = scan.providers.some(
+    (provider) => provider.name === "xAI" && provider.available,
+  );
   return {
     filesystemEnabled: true,
     gitEnabled: false,
     claudeCodeServeEnabled: toolAvailable(scan.tools, "claude"),
+    grokMcpEnabled: xaiReady,
+    xaiResearchMcpEnabled: xaiReady,
   };
 }
 
@@ -159,12 +166,18 @@ export function buildConnectorExportRequest(
   settings: ConnectorExportDefaults,
 ): Pick<
   ProjectConnectorSettings,
-  "filesystemEnabled" | "gitEnabled" | "claudeCodeServeEnabled"
+  | "filesystemEnabled"
+  | "gitEnabled"
+  | "claudeCodeServeEnabled"
+  | "grokMcpEnabled"
+  | "xaiResearchMcpEnabled"
 > {
   return {
     filesystemEnabled: settings.filesystemEnabled,
     gitEnabled: settings.gitEnabled,
     claudeCodeServeEnabled: settings.claudeCodeServeEnabled,
+    grokMcpEnabled: settings.grokMcpEnabled,
+    xaiResearchMcpEnabled: settings.xaiResearchMcpEnabled,
   };
 }
 
@@ -178,6 +191,12 @@ export function connectorExportSummary(settings: ProjectConnectorSettings): stri
   }
   if (settings.claudeCodeServeEnabled) {
     enabled.push("Claude Code MCP serve");
+  }
+  if (settings.grokMcpEnabled) {
+    enabled.push("Grok MCP");
+  }
+  if (settings.xaiResearchMcpEnabled) {
+    enabled.push("xAI Research MCP");
   }
   return enabled;
 }
@@ -214,16 +233,6 @@ export function grokCredentialReady(
 export function selectTestHandoffTarget(
   providers: ProviderAdapterStatus[],
 ): ProviderAdapterStatus | null {
-  const lmStudio = providers.find(
-    (provider) =>
-      provider.id === "lm-studio" &&
-      provider.health.available &&
-      provider.models.length > 0,
-  );
-  if (lmStudio) {
-    return lmStudio;
-  }
-
   const grok = providers.find(
     (provider) =>
       provider.id === "xai" &&
@@ -232,6 +241,16 @@ export function selectTestHandoffTarget(
   );
   if (grok) {
     return grok;
+  }
+
+  const lmStudio = providers.find(
+    (provider) =>
+      provider.id === "lm-studio" &&
+      provider.health.available &&
+      provider.models.length > 0,
+  );
+  if (lmStudio) {
+    return lmStudio;
   }
 
   return (

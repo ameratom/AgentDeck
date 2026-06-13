@@ -108,8 +108,11 @@ describe("onboarding model", () => {
       filesystemEnabled: true,
       gitEnabled: false,
       claudeCodeServeEnabled: true,
+      grokMcpEnabled: true,
+      xaiResearchMcpEnabled: true,
     });
     expect(request.claudeCodeServeEnabled).toBe(true);
+    expect(request.grokMcpEnabled).toBe(true);
   });
 
   it("summarizes exported connector profiles", () => {
@@ -120,6 +123,8 @@ describe("onboarding model", () => {
       filesystemEnabled: true,
       gitEnabled: false,
       claudeCodeServeEnabled: true,
+      grokMcpEnabled: true,
+      xaiResearchMcpEnabled: true,
       claudeExportPath: "/tmp/claude.mcp.json",
       codexExportPath: "/tmp/codex.mcp.toml",
       claudeCodeServeExportPath: "/tmp/claude-code-serve.mcp.json",
@@ -143,13 +148,13 @@ describe("onboarding model", () => {
     expect(grokCredentialReady([provider("xai", "missing")])).toBe(false);
   });
 
-  it("prefers LM Studio for the onboarding handoff smoke test", () => {
+  it("prefers xAI for the onboarding handoff smoke test", () => {
     const target = selectTestHandoffTarget([
       provider("xai", "stored"),
       provider("lm-studio", "not-required"),
     ]);
 
-    expect(target?.id).toBe("lm-studio");
+    expect(target?.id).toBe("xai");
   });
 
   it("builds a short onboarding handoff request", () => {

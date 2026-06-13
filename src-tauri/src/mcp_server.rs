@@ -13,6 +13,7 @@ use crate::models::{
 };
 use crate::permissions;
 use crate::storage;
+use crate::xai_research;
 
 const SERVER_NAME: &str = "AgentDeck";
 const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -271,6 +272,11 @@ pub fn execute_agentdeck_tool(tool_name: &str, arguments: Value) -> Result<(Stri
         },
         "agentdeck.search_audit_log" => serde_json::to_value(search_audit_log(arguments)?)
             .map_err(|error| format!("failed to serialize audit search: {error}"))?,
+        "agentdeck.xai_research_search_web"
+        | "agentdeck.xai_research_answer_with_sources"
+        | "agentdeck.xai_research_summarize_url" => {
+            xai_research::execute_tool(&database_path, tool_name, &arguments)?
+        }
         "agentdeck.dispatch_handoff" => serde_json::to_value(dispatch_handoff_tool(
             &database_path,
             arguments,
@@ -380,20 +386,23 @@ fn tools_list() -> Vec<Value> {
         ),
         tool_definition(
             "agentdeck.get_run",
-            "Fetch a stored handoff run by identifier.",
+            "Fetch a stored handoff run by runId, auditId, or conversationId. Audit search rows for handoff.dispatch include runId when available.",
             json!({
                 "type": "object",
                 "properties": {
-                    "runId": { "type": "string" }
+                    "runId": { "type": "string" },
+                    "auditId": { "type": "string" },
+                    "auditRef": { "type": "string" },
+                    "conversationId": { "type": "string" },
+                    "threadId": { "type": "string" }
                 },
-                "required": ["runId"],
                 "additionalProperties": false
             }),
             true,
         ),
         tool_definition(
             "agentdeck.search_audit_log",
-            "Search stored audit events by query string and return recent matches.",
+            "Search stored audit events. Multiple terms and OR are supported, for example \"handoff OR provider\" or \"handoff provider\".",
             json!({
                 "type": "object",
                 "properties": {
@@ -403,6 +412,46 @@ fn tools_list() -> Vec<Value> {
                 "additionalProperties": false
             }),
             true,
+        ),
+        tool_definition_open_world(
+            "agentdeck.xai_research_search_web",
+            "Search the current public web and return a concise evidence summary with source URLs.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string" },
+                    "maxSources": { "type": "integer", "minimum": 1, "maximum": 20 }
+                },
+                "required": ["query"],
+                "additionalProperties": false
+            }),
+        ),
+        tool_definition_open_world(
+            "agentdeck.xai_research_answer_with_sources",
+            "Answer a question using current web research and return the answer with source URLs.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "question": { "type": "string" },
+                    "maxSources": { "type": "integer", "minimum": 1, "maximum": 20 }
+                },
+                "required": ["question"],
+                "additionalProperties": false
+            }),
+        ),
+        tool_definition_open_world(
+            "agentdeck.xai_research_summarize_url",
+            "Read and summarize a public HTTP or HTTPS URL, preserving the source URL and relevant citations.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "url": { "type": "string" },
+                    "focus": { "type": "string" },
+                    "maxSources": { "type": "integer", "minimum": 1, "maximum": 20 }
+                },
+                "required": ["url"],
+                "additionalProperties": false
+            }),
         ),
         tool_definition(
             "agentdeck.dispatch_handoff",
@@ -486,6 +535,19 @@ fn tool_definition(
             "readOnlyHint": read_only,
             "openWorldHint": false,
             "destructiveHint": !read_only
+        }
+    })
+}
+
+fn tool_definition_open_world(name: &str, description: &str, input_schema: Value) -> Value {
+    json!({
+        "name": name,
+        "description": description,
+        "inputSchema": input_schema,
+        "annotations": {
+            "readOnlyHint": true,
+            "openWorldHint": true,
+            "destructiveHint": false
         }
     })
 }
@@ -635,14 +697,24 @@ fn list_agents() -> Result<Value, String> {
 }
 
 fn get_run(arguments: Value) -> Result<Value, String> {
-    let run_id = arguments
-        .get("runId")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "runId is required".to_owned())?;
-    storage::validate_identifier("run ID", run_id)?;
+    let run_id = arguments.get("runId").and_then(Value::as_str);
+    let audit_id = arguments
+        .get("auditId")
+        .or_else(|| arguments.get("auditRef"))
+        .and_then(Value::as_str);
+    let conversation_id = arguments
+        .get("conversationId")
+        .or_else(|| arguments.get("threadId"))
+        .and_then(Value::as_str);
     let connection = storage::open_database(&database_path()?)?;
-    let run = storage::load_handoff_run(&connection, run_id)?;
-    Ok(json!({ "run": run }))
+    let resolved_run_id = storage::resolve_handoff_run_id(
+        &connection,
+        run_id,
+        audit_id,
+        conversation_id,
+    )?;
+    let run = storage::load_handoff_run(&connection, &resolved_run_id)?;
+    Ok(json!({ "run": run, "runId": resolved_run_id }))
 }
 
 fn search_audit_log(arguments: Value) -> Result<Value, String> {
@@ -670,44 +742,78 @@ fn load_audit_events(
     query: &str,
     limit: usize,
 ) -> Result<Vec<AuditEventRecord>, String> {
-    let mut statement = if query.is_empty() {
-        connection
+    let tokens = parse_audit_query_tokens(query);
+    let mut records = if tokens.is_empty() {
+        let mut statement = connection
             .prepare(
                 "SELECT id, action, status, model, conversation_id, duration_ms, created_at
                  FROM audit_events
                  ORDER BY created_at DESC
                  LIMIT ?1",
             )
-            .map_err(|error| format!("failed to prepare audit query: {error}"))?
-    } else {
-        connection
-            .prepare(
-                "SELECT id, action, status, model, conversation_id, duration_ms, created_at
-                 FROM audit_events
-                 WHERE id LIKE ?1 COLLATE NOCASE
-                    OR action LIKE ?1 COLLATE NOCASE
-                    OR status LIKE ?1 COLLATE NOCASE
-                    OR model LIKE ?1 COLLATE NOCASE
-                    OR conversation_id LIKE ?1 COLLATE NOCASE
-                 ORDER BY created_at DESC
-                 LIMIT ?2",
-            )
-            .map_err(|error| format!("failed to prepare audit query: {error}"))?
-    };
-
-    let rows = if query.is_empty() {
-        statement
+            .map_err(|error| format!("failed to prepare audit query: {error}"))?;
+        let rows = statement
             .query_map([limit as i64], storage::map_audit_row)
-            .map_err(|error| format!("failed to load audit events: {error}"))?
+            .map_err(|error| format!("failed to load audit events: {error}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("failed to decode audit events: {error}"))?
     } else {
-        let pattern = format!("%{query}%");
-        statement
-            .query_map(params![pattern, limit as i64], storage::map_audit_row)
-            .map_err(|error| format!("failed to load audit events: {error}"))?
+        let mut collected = Vec::new();
+        let mut seen = std::collections::BTreeSet::new();
+        for token in tokens {
+            let pattern = format!("%{token}%");
+            let mut statement = connection
+                .prepare(
+                    "SELECT id, action, status, model, conversation_id, duration_ms, created_at
+                     FROM audit_events
+                     WHERE id LIKE ?1 COLLATE NOCASE
+                        OR action LIKE ?1 COLLATE NOCASE
+                        OR status LIKE ?1 COLLATE NOCASE
+                        OR model LIKE ?1 COLLATE NOCASE
+                        OR conversation_id LIKE ?1 COLLATE NOCASE
+                     ORDER BY created_at DESC
+                     LIMIT ?2",
+                )
+                .map_err(|error| format!("failed to prepare audit query: {error}"))?;
+            let rows = statement
+                .query_map(params![pattern, limit as i64], storage::map_audit_row)
+                .map_err(|error| format!("failed to load audit events: {error}"))?;
+            for record in rows.flatten() {
+                if seen.insert(record.id.clone()) {
+                    collected.push(record);
+                }
+            }
+        }
+        collected.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+        collected.truncate(limit);
+        collected
     };
 
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|error| format!("failed to decode audit events: {error}"))
+    for record in &mut records {
+        if record.action == "handoff.dispatch" {
+            record.run_id = storage::lookup_handoff_run_id_by_audit_ref(connection, &record.id)?
+                .or_else(|| {
+                    storage::lookup_handoff_run_id_by_thread_id(connection, &record.conversation_id)
+                        .ok()
+                        .flatten()
+                });
+        }
+    }
+
+    Ok(records)
+}
+
+fn parse_audit_query_tokens(query: &str) -> Vec<String> {
+    let mut normalized = query.replace('|', " ");
+    for separator in [" OR ", " or ", " Or ", " oR "] {
+        normalized = normalized.replace(separator, " ");
+    }
+    normalized
+        .split_whitespace()
+        .filter(|token| !token.is_empty() && !token.eq_ignore_ascii_case("or"))
+        .map(str::to_owned)
+        .take(8)
+        .collect()
 }
 
 fn database_path() -> Result<PathBuf, String> {
@@ -804,6 +910,18 @@ mod tests {
     fn rejects_unknown_run_ids() {
         let result = get_run(json!({"runId":"run:test"}));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_get_run_without_identifier() {
+        let result = get_run(json!({}));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn audit_query_tokens_split_or_terms() {
+        let tokens = parse_audit_query_tokens("handoff OR provider");
+        assert_eq!(tokens, vec!["handoff".to_owned(), "provider".to_owned()]);
     }
 
     #[test]
