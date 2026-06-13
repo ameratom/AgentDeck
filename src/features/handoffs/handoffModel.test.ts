@@ -3,8 +3,9 @@ import {
   buildApprovalRecord,
   buildHandoffRequest,
   recentOutput,
-  selectActiveScan,
   resolvePreferredHandoffModel,
+  resolveSuggestedHandoffModel,
+  selectActiveScan,
   selectDefaultModel,
   selectDefaultModelFromList,
   selectDefaultTargetProvider,
@@ -43,6 +44,7 @@ describe("handoff model helpers", () => {
   it("prefers a newly scanned local source inventory", () => {
     const parent = {
       scannedAt: "2026-06-11T10:00:00Z",
+      project: null,
       tools: [],
       providers: [],
       processes: [],
@@ -112,9 +114,25 @@ describe("handoff model helpers", () => {
     expect(resolvePreferredHandoffModel(unverified)).toBe("");
   });
 
+  it("uses a suggested model only when the refreshed provider offers it", () => {
+    const lmStudio = provider("lm-studio", "LM Studio");
+    lmStudio.models = [
+      { id: "google/gemma-3-4b", ownedBy: null },
+      { id: "qwen/qwen3.5-9b", ownedBy: null },
+    ];
+
+    expect(resolveSuggestedHandoffModel(lmStudio, "google/gemma-3-4b")).toBe(
+      "google/gemma-3-4b",
+    );
+    expect(resolveSuggestedHandoffModel(lmStudio, "removed/model")).toBe(
+      "qwen/qwen3.5-9b",
+    );
+  });
+
   it("falls back to the captured error when no output exists", () => {
     const run: HandoffRun = {
       id: "run:1",
+      projectId: null,
       threadId: "handoff:agent:codex:lm-studio",
       sourceAgentId: "agent:codex",
       sourceAgentName: "Codex",

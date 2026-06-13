@@ -79,6 +79,7 @@ describe("AgentsView data contract", () => {
   it("renders with mock scan data", () => {
     const scan: EnvironmentScan = {
       scannedAt: "2026-06-10T12:00:00Z",
+      project: null,
       tools: [],
       providers: [],
       processes: [],

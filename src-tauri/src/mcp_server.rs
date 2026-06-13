@@ -701,6 +701,7 @@ mod tests {
     fn environment_scan() -> EnvironmentScan {
         EnvironmentScan {
             scanned_at: "2026-06-08T00:00:00Z".to_owned(),
+            project: None,
             tools: vec![],
             providers: vec![],
             processes: vec![],

@@ -25,11 +25,20 @@ pub struct ProviderHealth {
 #[serde(rename_all = "camelCase")]
 pub struct EnvironmentScan {
     pub scanned_at: String,
+    pub project: Option<ProjectContext>,
     pub tools: Vec<ToolStatus>,
     pub providers: Vec<ProviderHealth>,
     pub processes: Vec<DetectedProcess>,
     pub configs: Vec<DetectedConfig>,
     pub entities: Vec<DiscoveredEntity>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectContext {
+    pub id: String,
+    pub name: String,
+    pub path: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -98,6 +107,7 @@ pub struct ChatMessage {
 #[serde(rename_all = "camelCase")]
 pub struct ChatRequest {
     pub conversation_id: String,
+    pub project_id: Option<String>,
     pub provider_id: String,
     pub model: String,
     pub messages: Vec<ChatMessageInput>,
@@ -248,6 +258,7 @@ pub struct McpServerDefinition {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HandoffRequest {
+    pub project_id: Option<String>,
     pub source_agent_id: String,
     pub source_agent_name: String,
     pub target_provider_id: String,
@@ -263,6 +274,7 @@ pub struct HandoffRequest {
 #[serde(rename_all = "camelCase")]
 pub struct HandoffRun {
     pub id: String,
+    pub project_id: Option<String>,
     pub thread_id: String,
     pub source_agent_id: String,
     pub source_agent_name: String,
@@ -396,6 +408,26 @@ pub struct McpToggleResult {
     pub backup_path: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectConnectorSettings {
+    pub project_id: String,
+    pub project_name: String,
+    pub project_path: String,
+    pub filesystem_enabled: bool,
+    pub git_enabled: bool,
+    pub claude_export_path: String,
+    pub codex_export_path: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveProjectConnectorSettingsRequest {
+    pub filesystem_enabled: bool,
+    pub git_enabled: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentPermission {
@@ -490,4 +522,30 @@ pub struct HandoffRouteSuggestion {
     pub target_provider_id: String,
     pub target_model_id: Option<String>,
     pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectWorkspace {
+    pub id: String,
+    pub name: String,
+    pub path: String,
+    pub exists: bool,
+    pub active: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectWorkspaceList {
+    pub loaded_at: String,
+    pub projects: Vec<ProjectWorkspace>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegisterProjectRequest {
+    pub path: String,
+    pub name: Option<String>,
 }

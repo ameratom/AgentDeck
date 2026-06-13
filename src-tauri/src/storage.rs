@@ -3,14 +3,15 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager};
 
 use crate::models::{
     AppSettings, AuditEventRecord, AuditEventsPage, ChatMessage, ChatPreferences, HandoffRun,
-    LocalDeleteResult, LocalExportResult, RouterRule, SkillExecutionRecord,
+    LocalDeleteResult, LocalExportResult, ProjectWorkspace, RouterRule, SkillExecutionRecord,
+    ProjectConnectorSettings,
 };
 
 const DEFAULT_REDACT_SENSITIVE_EXPORTS: bool = true;
@@ -86,7 +87,7 @@ pub(crate) fn stable_hash(value: &str) -> u64 {
 pub fn load_handoff_run(connection: &Connection, run_id: &str) -> Result<HandoffRun, String> {
     let mut statement = connection
         .prepare(
-            "SELECT id, thread_id, source_agent_id, source_agent_name, target_provider_id,
+            "SELECT id, project_id, thread_id, source_agent_id, source_agent_name, target_provider_id,
                     target_provider_name, target_model_id, title, task, context, status,
                     output, error, approvals, audit_ref, created_at, updated_at
              FROM handoff_runs
@@ -103,57 +104,60 @@ pub fn load_handoff_run(connection: &Connection, run_id: &str) -> Result<Handoff
         return Err("handoff run was not found".to_owned());
     };
     let approvals: String = row
-        .get(13)
+        .get(14)
         .map_err(|error| format!("failed to decode approvals: {error}"))?;
     Ok(HandoffRun {
         id: row
             .get(0)
             .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        thread_id: row
+        project_id: row
             .get(1)
             .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        source_agent_id: row
+        thread_id: row
             .get(2)
             .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        source_agent_name: row
+        source_agent_id: row
             .get(3)
             .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        target_provider_id: row
+        source_agent_name: row
             .get(4)
             .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        target_provider_name: row
+        target_provider_id: row
             .get(5)
             .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        target_model_id: row
+        target_provider_name: row
             .get(6)
             .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        title: row
+        target_model_id: row
             .get(7)
             .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        task: row
+        title: row
             .get(8)
             .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        context: row
+        task: row
             .get(9)
             .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        status: row
+        context: row
             .get(10)
             .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        output: row
+        status: row
             .get(11)
             .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        error: row
+        output: row
             .get(12)
+            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
+        error: row
+            .get(13)
             .map_err(|error| format!("failed to decode handoff run: {error}"))?,
         approvals: serde_json::from_str::<Vec<String>>(&approvals).unwrap_or_default(),
         audit_ref: row
-            .get(14)
-            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        created_at: row
             .get(15)
             .map_err(|error| format!("failed to decode handoff run: {error}"))?,
-        updated_at: row
+        created_at: row
             .get(16)
+            .map_err(|error| format!("failed to decode handoff run: {error}"))?,
+        updated_at: row
+            .get(17)
             .map_err(|error| format!("failed to decode handoff run: {error}"))?,
     })
 }
@@ -294,6 +298,8 @@ pub fn export_local_data(path: &Path) -> Result<LocalExportResult, String> {
         plugin_settings: load_plugin_settings(&connection)?,
         skill_execution_runs: load_skill_executions(&connection)?,
         router_rules: load_router_rules(&connection)?,
+        projects: load_project_workspaces(&connection)?,
+        project_connector_settings: load_all_project_connector_settings(&connection)?,
         app_settings: settings.clone(),
     };
 
@@ -403,6 +409,8 @@ struct LocalDataExport {
     plugin_settings: Vec<PluginSettingRecord>,
     skill_execution_runs: Vec<SkillExecutionRecord>,
     router_rules: Vec<RouterRule>,
+    projects: Vec<ProjectWorkspace>,
+    project_connector_settings: Vec<ProjectConnectorSettings>,
     app_settings: AppSettings,
 }
 
@@ -456,6 +464,7 @@ fn migrate_database(connection: &Connection) -> Result<(), String> {
                 ON audit_events(created_at DESC);
             CREATE TABLE IF NOT EXISTS handoff_runs (
                 id TEXT PRIMARY KEY,
+                project_id TEXT,
                 thread_id TEXT NOT NULL,
                 source_agent_id TEXT NOT NULL,
                 source_agent_name TEXT NOT NULL,
@@ -513,6 +522,25 @@ fn migrate_database(connection: &Connection) -> Result<(), String> {
                 ciphertext TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS project_workspaces (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                path TEXT NOT NULL UNIQUE,
+                active INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_project_workspaces_active
+                ON project_workspaces(active DESC, updated_at DESC);
+            CREATE TABLE IF NOT EXISTS project_connector_settings (
+                project_id TEXT PRIMARY KEY,
+                filesystem_enabled INTEGER NOT NULL DEFAULT 0,
+                git_enabled INTEGER NOT NULL DEFAULT 0,
+                claude_export_path TEXT NOT NULL,
+                codex_export_path TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (project_id) REFERENCES project_workspaces(id) ON DELETE CASCADE
+            );
             ",
         )
         .map_err(|error| format!("failed to initialize local database: {error}"))?;
@@ -558,6 +586,189 @@ fn migrate_database(connection: &Connection) -> Result<(), String> {
             )
             .map_err(|error| format!("failed to record schema migration: {error}"))?;
     }
+    if !migration_applied(connection, 6)? {
+        seed_default_router_rules(connection)?;
+        connection
+            .execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+                params![6_i64, Utc::now().to_rfc3339()],
+            )
+            .map_err(|error| format!("failed to record schema migration: {error}"))?;
+    }
+    if !migration_applied(connection, 7)? {
+        connection
+            .execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+                params![7_i64, Utc::now().to_rfc3339()],
+            )
+            .map_err(|error| format!("failed to record schema migration: {error}"))?;
+    }
+    if !migration_applied(connection, 8)? {
+        let has_project_id = connection
+            .prepare("PRAGMA table_info(handoff_runs)")
+            .and_then(|mut statement| {
+                let columns = statement.query_map([], |row| row.get::<_, String>(1))?;
+                Ok(columns.filter_map(Result::ok).any(|column| column == "project_id"))
+            })
+            .map_err(|error| format!("failed to inspect handoff schema: {error}"))?;
+        if !has_project_id {
+            connection
+                .execute("ALTER TABLE handoff_runs ADD COLUMN project_id TEXT", [])
+                .map_err(|error| format!("failed to add handoff project scope: {error}"))?;
+        }
+        connection
+            .execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+                params![8_i64, Utc::now().to_rfc3339()],
+            )
+            .map_err(|error| format!("failed to record schema migration: {error}"))?;
+    }
+    if !migration_applied(connection, 9)? {
+        connection
+            .execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+                params![9_i64, Utc::now().to_rfc3339()],
+            )
+            .map_err(|error| format!("failed to record schema migration: {error}"))?;
+    }
+    Ok(())
+}
+
+pub fn load_project_workspaces(
+    connection: &Connection,
+) -> Result<Vec<ProjectWorkspace>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT id, name, path, active, created_at, updated_at
+             FROM project_workspaces
+             ORDER BY active DESC, updated_at DESC, name ASC",
+        )
+        .map_err(|error| format!("failed to prepare project query: {error}"))?;
+    let rows = statement
+        .query_map([], |row| {
+            let path: String = row.get(2)?;
+            Ok(ProjectWorkspace {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                exists: Path::new(&path).is_dir(),
+                path,
+                active: row.get::<_, i64>(3)? != 0,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
+            })
+        })
+        .map_err(|error| format!("failed to query projects: {error}"))?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("failed to decode projects: {error}"))
+}
+
+pub fn load_active_project(connection: &Connection) -> Result<Option<ProjectWorkspace>, String> {
+    Ok(load_project_workspaces(connection)?
+        .into_iter()
+        .find(|project| project.active))
+}
+
+pub fn require_active_project(
+    connection: &Connection,
+    project_id: &str,
+) -> Result<ProjectWorkspace, String> {
+    let project = load_active_project(connection)?
+        .ok_or_else(|| "no active project is configured".to_owned())?;
+    if project.id != project_id {
+        return Err("the requested project is no longer active".to_owned());
+    }
+    if !project.exists {
+        return Err("the active project folder is unavailable".to_owned());
+    }
+    Ok(project)
+}
+
+pub fn load_project_connector_settings(
+    connection: &Connection,
+    project: &ProjectWorkspace,
+) -> Result<Option<ProjectConnectorSettings>, String> {
+    connection
+        .query_row(
+            "SELECT filesystem_enabled, git_enabled, claude_export_path,
+                    codex_export_path, updated_at
+             FROM project_connector_settings
+             WHERE project_id = ?1",
+            [&project.id],
+            |row| {
+                Ok(ProjectConnectorSettings {
+                    project_id: project.id.clone(),
+                    project_name: project.name.clone(),
+                    project_path: project.path.clone(),
+                    filesystem_enabled: row.get::<_, i64>(0)? != 0,
+                    git_enabled: row.get::<_, i64>(1)? != 0,
+                    claude_export_path: row.get(2)?,
+                    codex_export_path: row.get(3)?,
+                    updated_at: row.get(4)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|error| format!("failed to load project connector settings: {error}"))
+}
+
+fn load_all_project_connector_settings(
+    connection: &Connection,
+) -> Result<Vec<ProjectConnectorSettings>, String> {
+    let projects = load_project_workspaces(connection)?;
+    let mut settings = Vec::new();
+    for project in &projects {
+        if let Some(project_settings) = load_project_connector_settings(connection, project)? {
+            settings.push(project_settings);
+        }
+    }
+    Ok(settings)
+}
+
+fn seed_default_router_rules(connection: &Connection) -> Result<(), String> {
+    let rule_count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM router_rules", [], |row| row.get(0))
+        .map_err(|error| format!("failed to count router rules: {error}"))?;
+    if rule_count > 0 {
+        return Ok(());
+    }
+
+    let updated_at = Utc::now().to_rfc3339();
+    let rules = [
+        RouterRule {
+            id: "router-rule:default-review".to_owned(),
+            priority: 0,
+            name: "Local review".to_owned(),
+            enabled: true,
+            source_agent_id: None,
+            keyword: Some("review".to_owned()),
+            target_provider_id: "lm-studio".to_owned(),
+            target_model_id: None,
+            updated_at: updated_at.clone(),
+        },
+        RouterRule {
+            id: "router-rule:default-research".to_owned(),
+            priority: 1,
+            name: "Current research".to_owned(),
+            enabled: true,
+            source_agent_id: None,
+            keyword: Some("research".to_owned()),
+            target_provider_id: "xai".to_owned(),
+            target_model_id: None,
+            updated_at: updated_at.clone(),
+        },
+        RouterRule {
+            id: "router-rule:default-code".to_owned(),
+            priority: 2,
+            name: "Code implementation".to_owned(),
+            enabled: true,
+            source_agent_id: None,
+            keyword: Some("code".to_owned()),
+            target_provider_id: "codex".to_owned(),
+            target_model_id: None,
+            updated_at,
+        },
+    ];
+    replace_router_rules(connection, &rules)?;
     Ok(())
 }
 
@@ -798,7 +1009,7 @@ fn load_chat_messages(connection: &Connection) -> Result<Vec<ChatMessage>, Strin
 fn load_handoff_runs(connection: &Connection) -> Result<Vec<HandoffRun>, String> {
     let mut statement = connection
         .prepare(
-            "SELECT id, thread_id, source_agent_id, source_agent_name, target_provider_id,
+            "SELECT id, project_id, thread_id, source_agent_id, source_agent_name, target_provider_id,
                     target_provider_name, target_model_id, title, task, context, status,
                     output, error, approvals, audit_ref, created_at, updated_at
              FROM handoff_runs
@@ -807,25 +1018,26 @@ fn load_handoff_runs(connection: &Connection) -> Result<Vec<HandoffRun>, String>
         .map_err(|error| format!("failed to prepare handoff export: {error}"))?;
     let rows = statement
         .query_map([], |row| {
-            let approvals: String = row.get(13)?;
+            let approvals: String = row.get(14)?;
             Ok(HandoffRun {
                 id: row.get(0)?,
-                thread_id: row.get(1)?,
-                source_agent_id: row.get(2)?,
-                source_agent_name: row.get(3)?,
-                target_provider_id: row.get(4)?,
-                target_provider_name: row.get(5)?,
-                target_model_id: row.get(6)?,
-                title: row.get(7)?,
-                task: row.get(8)?,
-                context: row.get(9)?,
-                status: row.get(10)?,
-                output: row.get(11)?,
-                error: row.get(12)?,
+                project_id: row.get(1)?,
+                thread_id: row.get(2)?,
+                source_agent_id: row.get(3)?,
+                source_agent_name: row.get(4)?,
+                target_provider_id: row.get(5)?,
+                target_provider_name: row.get(6)?,
+                target_model_id: row.get(7)?,
+                title: row.get(8)?,
+                task: row.get(9)?,
+                context: row.get(10)?,
+                status: row.get(11)?,
+                output: row.get(12)?,
+                error: row.get(13)?,
                 approvals: serde_json::from_str::<Vec<String>>(&approvals).unwrap_or_default(),
-                audit_ref: row.get(14)?,
-                created_at: row.get(15)?,
-                updated_at: row.get(16)?,
+                audit_ref: row.get(15)?,
+                created_at: row.get(16)?,
+                updated_at: row.get(17)?,
             })
         })
         .map_err(|error| format!("failed to load handoff export: {error}"))?;
@@ -1017,6 +1229,7 @@ fn log_path(path: &Path) -> PathBuf {
 }
 
 fn redact_snapshot(mut snapshot: LocalDataExport) -> LocalDataExport {
+    snapshot.database_path = "[redacted path]".to_owned();
     snapshot.chat_messages = snapshot
         .chat_messages
         .into_iter()
@@ -1035,6 +1248,24 @@ fn redact_snapshot(mut snapshot: LocalDataExport) -> LocalDataExport {
             run.output = redact_text(&run.output);
             run.error = run.error.map(|value| redact_text(&value));
             run
+        })
+        .collect();
+    snapshot.projects = snapshot
+        .projects
+        .into_iter()
+        .map(|mut project| {
+            project.path = "[redacted path]".to_owned();
+            project
+        })
+        .collect();
+    snapshot.project_connector_settings = snapshot
+        .project_connector_settings
+        .into_iter()
+        .map(|mut settings| {
+            settings.project_path = "[redacted path]".to_owned();
+            settings.claude_export_path = "[redacted path]".to_owned();
+            settings.codex_export_path = "[redacted path]".to_owned();
+            settings
         })
         .collect();
     snapshot
@@ -1151,6 +1382,50 @@ mod storage_tests {
         let loaded = load_router_rules(&connection).unwrap();
         assert_eq!(loaded[0].keyword.as_deref(), Some("review"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn seeds_default_router_rules_once() {
+        let dir = std::env::temp_dir().join(format!(
+            "agentdeck-default-router-rules-{}",
+            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("agentdeck.sqlite3");
+
+        let connection = open_database(&path).unwrap();
+        let rules = load_router_rules(&connection).unwrap();
+        assert_eq!(rules.len(), 3);
+        assert_eq!(rules[0].id, "router-rule:default-review");
+        assert_eq!(rules[1].target_provider_id, "xai");
+        assert_eq!(rules[2].target_provider_id, "codex");
+
+        replace_router_rules(&connection, &[]).unwrap();
+        drop(connection);
+
+        let reopened = open_database(&path).unwrap();
+        assert!(load_router_rules(&reopened).unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn loads_project_workspaces_with_active_first() {
+        let connection = Connection::open_in_memory().unwrap();
+        migrate_database(&connection).unwrap();
+        connection
+            .execute(
+                "INSERT INTO project_workspaces
+                    (id, name, path, active, created_at, updated_at)
+                 VALUES
+                    ('project:one', 'One', '/tmp/one', 0, '2026-01-01', '2026-01-01'),
+                    ('project:two', 'Two', '/tmp/two', 1, '2026-01-01', '2026-01-02')",
+                [],
+            )
+            .unwrap();
+        let projects = load_project_workspaces(&connection).unwrap();
+        assert_eq!(projects.len(), 2);
+        assert_eq!(projects[0].id, "project:two");
+        assert!(projects[0].active);
     }
 }
 

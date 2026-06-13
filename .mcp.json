@@ -8,6 +8,10 @@
       "command": "/Users/claudemccready/Desktop/Scripts/Codex/AgentDeck/scripts/grok-mcp-launcher.sh",
       "args": []
     },
+    "agentdeck-xai-research-mcp": {
+      "command": "/Users/claudemccready/Desktop/Scripts/Codex/AgentDeck/scripts/xai-research-mcp-launcher.sh",
+      "args": []
+    },
     "filesystem": {
       "command": "/Users/claudemccready/Desktop/Scripts/Codex/AgentDeck/scripts/filesystem-mcp-launcher.sh",
       "args": ["/Users/claudemccready/Desktop/Scripts/Codex/AgentDeck"],

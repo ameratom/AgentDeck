@@ -222,15 +222,15 @@ export function SettingsView() {
         </article>
       </section>
 
-      <section className="settings-router" aria-label="Handoff router rules">
+      <section className="settings-router" aria-label="Chat and handoff router rules">
         <header>
           <div>
             <p className="eyebrow">Routing</p>
-            <h3>Handoff router rules</h3>
+            <h3>Chat and handoff router rules</h3>
             <p>
-              Priority-ordered suggestions for the Handoffs view. Lower priority
+              Priority-ordered suggestions for Chat and Handoffs. Lower priority
               numbers win first. Rules match source agent and/or keywords in the
-              title and task.
+              prompt, title, and task.
             </p>
           </div>
         </header>
@@ -393,7 +393,7 @@ export function SettingsView() {
           ) : (
             <p className="empty-state">
               No router rules yet. Add one to suggest target providers from
-              handoff title and task keywords.
+              chat prompts or handoff title and task keywords.
             </p>
           )}
         </div>

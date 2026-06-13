@@ -20,6 +20,7 @@ import {
   recentOutput,
   selectActiveScan,
   resolvePreferredHandoffModel,
+  resolveSuggestedHandoffModel,
   selectDefaultModel,
   selectDefaultTargetProvider,
 } from "./handoffModel";
@@ -42,6 +43,11 @@ interface ApprovalSnapshot {
   providerId: string;
   providerName: string;
   modelId: string;
+}
+
+interface RouteSuggestionResult {
+  requestKey: string;
+  suggestion: HandoffRouteSuggestion | null;
 }
 
 export function HandoffView({
@@ -70,10 +76,11 @@ export function HandoffView({
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const [approvalSnapshot, setApprovalSnapshot] =
     useState<ApprovalSnapshot | null>(null);
-  const [routeSuggestion, setRouteSuggestion] =
-    useState<HandoffRouteSuggestion | null>(null);
+  const [routeSuggestionResult, setRouteSuggestionResult] =
+    useState<RouteSuggestionResult | null>(null);
 
   const activeScan = selectActiveScan(localScan, scan);
+  const activeProject = activeScan?.project ?? null;
   const agents =
     activeScan?.entities.filter((entity) => entity.entityType === "agent") ?? [];
   const effectiveSourceId = selectedSourceId || agents[0]?.id || "";
@@ -86,6 +93,14 @@ export function HandoffView({
     [selectedProvider],
   );
   const selectedProviderBlocked = providerDispatchBlocked(selectedProvider);
+  const routeSuggestionRequestKey =
+    effectiveSourceId && title.trim() && task.trim()
+      ? JSON.stringify([effectiveSourceId, title, task])
+      : "";
+  const routeSuggestion =
+    routeSuggestionResult?.requestKey === routeSuggestionRequestKey
+      ? routeSuggestionResult.suggestion
+      : null;
 
   const canDispatch =
     selectedSource !== null &&
@@ -94,12 +109,15 @@ export function HandoffView({
     title.trim() !== "" &&
     task.trim() !== "" &&
     !selectedProviderBlocked;
+  const scopedRuns = runs.filter(
+    (run) => run.projectId === (activeProject?.id ?? null),
+  );
 
   const refreshProviderModels = useCallback(async (
     providerId: string,
     knownProviders: ProviderAdapterStatus[],
     cancelled = false,
-  ): Promise<void> => {
+  ): Promise<ProviderAdapterStatus | null> => {
     const provider = knownProviders.find((candidate) => candidate.id === providerId);
     if (provider && providerCredentialBlocked(provider)) {
       setStatus(
@@ -109,7 +127,7 @@ export function HandoffView({
             ? `${provider.name} legacy import failed. Approve Keychain access or enter the key in Providers.`
             : `${provider.name} target provider needs an API key before models can load.`,
       );
-      return;
+      return null;
     }
 
     setRefreshingModels(true);
@@ -117,7 +135,7 @@ export function HandoffView({
     try {
       const nextProvider = await checkProviderAdapter({ providerId });
       if (cancelled) {
-        return;
+        return null;
       }
       setProviders((current) =>
         current.map((provider) =>
@@ -137,11 +155,13 @@ export function HandoffView({
           ? `${nextProvider.name} is ready with ${nextProvider.models.length} models.`
           : `${nextProvider.name}: ${nextProvider.health.detail}`,
       );
+      return nextProvider;
     } catch (error) {
       if (!cancelled) {
         const detail = error instanceof Error ? error.message : String(error);
         setStatus(`Failed to load models: ${detail}`);
       }
+      return null;
     } finally {
       if (!cancelled) {
         setRefreshingModels(false);
@@ -199,12 +219,12 @@ export function HandoffView({
   }, [refreshProviderModels]);
 
   useEffect(() => {
-    if (!effectiveSourceId || title.trim() === "" || task.trim() === "") {
-      setRouteSuggestion(null);
+    if (!routeSuggestionRequestKey) {
       return;
     }
 
     let cancelled = false;
+    const requestKey = routeSuggestionRequestKey;
     const timer = window.setTimeout(() => {
       void suggestHandoffRoute({
         sourceAgentId: effectiveSourceId,
@@ -213,12 +233,12 @@ export function HandoffView({
       })
         .then((suggestion) => {
           if (!cancelled) {
-            setRouteSuggestion(suggestion);
+            setRouteSuggestionResult({ requestKey, suggestion });
           }
         })
         .catch(() => {
           if (!cancelled) {
-            setRouteSuggestion(null);
+            setRouteSuggestionResult({ requestKey, suggestion: null });
           }
         });
     }, 250);
@@ -227,16 +247,33 @@ export function HandoffView({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [effectiveSourceId, title, task]);
+  }, [effectiveSourceId, routeSuggestionRequestKey, task, title]);
 
   async function applyRouteSuggestion(): Promise<void> {
     if (!routeSuggestion) {
       return;
     }
+    const targetProvider = providers.find(
+      (provider) => provider.id === routeSuggestion.targetProviderId,
+    );
+    if (!targetProvider) {
+      setStatus(
+        `Router target ${routeSuggestion.targetProviderId} is no longer available. Update the rule in Settings.`,
+      );
+      return;
+    }
     setSelectedProviderId(routeSuggestion.targetProviderId);
-    await refreshProviderModels(routeSuggestion.targetProviderId, providers);
-    if (routeSuggestion.targetModelId) {
-      setSelectedModelId(routeSuggestion.targetModelId);
+    const refreshedProvider = await refreshProviderModels(
+      routeSuggestion.targetProviderId,
+      providers,
+    );
+    if (refreshedProvider?.verifiedAvailable) {
+      setSelectedModelId(
+        resolveSuggestedHandoffModel(
+          refreshedProvider,
+          routeSuggestion.targetModelId,
+        ),
+      );
     }
     setStatus(
       `Applied router rule "${routeSuggestion.ruleName}" (${routeSuggestion.reason})`,
@@ -293,6 +330,7 @@ export function HandoffView({
     setStatus("Dispatching approved handoff...");
     try {
       const request = buildHandoffRequestFromTarget({
+        projectId: activeProject?.id ?? null,
         sourceAgentId: snapshot.sourceAgentId,
         sourceAgentName: snapshot.sourceAgentName,
         targetProviderId: snapshot.providerId,
@@ -347,6 +385,11 @@ export function HandoffView({
             Build a preview, approve it explicitly, and dispatch the task to a
             chosen provider model. The run record and result stay local.
           </p>
+          <p className="workspace-context">
+            {activeProject
+              ? `Scoped to ${activeProject.name} at ${activeProject.path}`
+              : "No active project. Handoffs will use global context."}
+          </p>
         </div>
         <button
           className="refresh-button"
@@ -364,7 +407,7 @@ export function HandoffView({
         <span className="handoff-source-count">
           {agents.length} source agents
         </span>
-        <span className="handoff-run-count">{runs.length} runs</span>
+        <span className="handoff-run-count">{scopedRuns.length} runs</span>
       </div>
 
       <section className="handoff-layout">
@@ -569,12 +612,12 @@ export function HandoffView({
               <p className="eyebrow">Runs</p>
               <h3>Recent handoffs</h3>
             </div>
-            <span>{runs.length} stored</span>
+            <span>{scopedRuns.length} stored</span>
           </div>
 
           <div className="handoff-run-list">
-            {runs.length > 0 ? (
-              runs.map((run, index) => (
+            {scopedRuns.length > 0 ? (
+              scopedRuns.map((run, index) => (
                 <article
                   className={
                     highlightRunIndex === index
@@ -631,6 +674,10 @@ export function HandoffView({
             </div>
 
             <dl className="handoff-preview-grid">
+              <div>
+                <dt>Project</dt>
+                <dd>{activeProject?.name ?? "Global"}</dd>
+              </div>
               <div>
                 <dt>Source</dt>
                 <dd>{approvalSnapshot.sourceAgentName}</dd>

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   buildChatRequest,
   resolvePreferredModel,
+  resolveSuggestedChatModel,
   selectDefaultProvider,
   toChatHistory,
 } from "./chatModel";
@@ -19,20 +20,30 @@ import {
   loadChatPreferences,
   saveChatPreferences,
   streamChatMessage,
+  suggestHandoffRoute,
 } from "../../lib/invoke";
 import type {
   ChatMessage,
   ChatStreamEvent,
+  HandoffRouteSuggestion,
+  ProjectContext,
   ProviderAdapterStatus,
 } from "../../lib/types";
 
-const CONVERSATION_ID = "conversation:agentdeck-local";
-
 interface ChatViewProps {
+  project: ProjectContext | null;
   onOpenProviders: () => void;
 }
 
-export function ChatView({ onOpenProviders }: ChatViewProps) {
+interface RouteSuggestionResult {
+  requestKey: string;
+  suggestion: HandoffRouteSuggestion | null;
+}
+
+export function ChatView({ project, onOpenProviders }: ChatViewProps) {
+  const conversationId = project
+    ? `conversation:${project.id}`
+    : "conversation:agentdeck-local";
   const [providers, setProviders] = useState<ProviderAdapterStatus[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState("");
   const [selectedModel, setSelectedModel] = useState("");
@@ -44,6 +55,8 @@ export function ChatView({ onOpenProviders }: ChatViewProps) {
   const [sending, setSending] = useState(false);
   const [refreshingModels, setRefreshingModels] = useState(false);
   const [enableAgentTools, setEnableAgentTools] = useState(false);
+  const [routeSuggestionResult, setRouteSuggestionResult] =
+    useState<RouteSuggestionResult | null>(null);
 
   const selectedProvider =
     providers.find((provider) => provider.id === selectedProviderId) ?? null;
@@ -56,6 +69,13 @@ export function ChatView({ onOpenProviders }: ChatViewProps) {
   );
   const previewBlocked = providerCredentialBlocked(selectedProvider);
   const dispatchBlocked = providerDispatchBlocked(selectedProvider);
+  const routeSuggestionRequestKey = draft.trim()
+    ? JSON.stringify(["agent:agentdeck", draft.trim()])
+    : "";
+  const routeSuggestion =
+    routeSuggestionResult?.requestKey === routeSuggestionRequestKey
+      ? routeSuggestionResult.suggestion
+      : null;
   const canSend =
     selectedProviderId !== "" &&
     selectedModel !== "" &&
@@ -63,7 +83,9 @@ export function ChatView({ onOpenProviders }: ChatViewProps) {
     !sending &&
     !dispatchBlocked;
 
-  const refreshProviderModels = useCallback(async (providerId: string): Promise<void> => {
+  const refreshProviderModels = useCallback(async (
+    providerId: string,
+  ): Promise<ProviderAdapterStatus | null> => {
     setRefreshingModels(true);
     setStatus(`Loading models for ${providerId}...`);
     try {
@@ -83,8 +105,10 @@ export function ChatView({ onOpenProviders }: ChatViewProps) {
           ? `${nextProvider.name} ready with ${nextProvider.models.length} models.`
           : `${nextProvider.name}: ${nextProvider.health.detail}`,
       );
+      return nextProvider;
     } catch (error) {
       setStatus(`Model load failed: ${formatError(error)}`);
+      return null;
     } finally {
       setRefreshingModels(false);
     }
@@ -98,7 +122,7 @@ export function ChatView({ onOpenProviders }: ChatViewProps) {
       try {
         const [nextProviders, nextMessages, preferences] = await Promise.all([
           listProviderAdapters(),
-          loadChatMessages(CONVERSATION_ID),
+          loadChatMessages(conversationId),
           loadChatPreferences(),
         ]);
         if (cancelled) {
@@ -136,7 +160,7 @@ export function ChatView({ onOpenProviders }: ChatViewProps) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [conversationId]);
 
   useEffect(() => {
     if (!selectedProviderId || !selectedModel) {
@@ -158,6 +182,73 @@ export function ChatView({ onOpenProviders }: ChatViewProps) {
     return () => window.clearTimeout(timer);
   }, [loading, refreshProviderModels, selectedProviderId]);
 
+  useEffect(() => {
+    if (!routeSuggestionRequestKey) {
+      return;
+    }
+
+    let cancelled = false;
+    const requestKey = routeSuggestionRequestKey;
+    const timer = window.setTimeout(() => {
+      void suggestHandoffRoute({
+        sourceAgentId: "agent:agentdeck",
+        title: "Chat prompt",
+        task: draft,
+      })
+        .then((suggestion) => {
+          if (!cancelled) {
+            setRouteSuggestionResult({ requestKey, suggestion });
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setRouteSuggestionResult({ requestKey, suggestion: null });
+          }
+        });
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [draft, routeSuggestionRequestKey]);
+
+  async function applyRouteSuggestion(): Promise<void> {
+    if (!routeSuggestion) {
+      return;
+    }
+    const targetProvider = providers.find(
+      (provider) => provider.id === routeSuggestion.targetProviderId,
+    );
+    if (!targetProvider) {
+      setStatus(
+        `Router target ${routeSuggestion.targetProviderId} is no longer available. Update the rule in Settings.`,
+      );
+      return;
+    }
+    if (providerCredentialBlocked(targetProvider)) {
+      setStatus(
+        `${targetProvider.name} needs usable credentials before this suggestion can be applied.`,
+      );
+      return;
+    }
+
+    setSelectedProviderId(targetProvider.id);
+    const refreshedProvider = await refreshProviderModels(targetProvider.id);
+    if (!refreshedProvider?.verifiedAvailable) {
+      return;
+    }
+    setSelectedModel(
+      resolveSuggestedChatModel(
+        refreshedProvider.models,
+        routeSuggestion.targetModelId,
+      ),
+    );
+    setStatus(
+      `Applied router rule "${routeSuggestion.ruleName}" (${routeSuggestion.reason})`,
+    );
+  }
+
   async function submitMessage(): Promise<void> {
     const content = draft.trim();
     if (!canSend || content === "") {
@@ -166,7 +257,7 @@ export function ChatView({ onOpenProviders }: ChatViewProps) {
 
     const optimisticUser: ChatMessage = {
       id: null,
-      conversationId: CONVERSATION_ID,
+      conversationId,
       role: "user",
       content,
       model: selectedModel,
@@ -192,7 +283,8 @@ export function ChatView({ onOpenProviders }: ChatViewProps) {
     try {
       const response = await streamChatMessage(
         buildChatRequest(
-          CONVERSATION_ID,
+          conversationId,
+          project?.id ?? null,
           selectedProviderId,
           selectedModel,
           currentMessages,
@@ -235,7 +327,7 @@ export function ChatView({ onOpenProviders }: ChatViewProps) {
           ...messages,
           {
             id: "streaming",
-            conversationId: CONVERSATION_ID,
+            conversationId,
             role: "assistant" as const,
             content: streamingContent,
             model: selectedModel,
@@ -253,6 +345,11 @@ export function ChatView({ onOpenProviders }: ChatViewProps) {
           <p>
             Route conversation across LM Studio, Grok, Claude, Codex, and Claude
             Code with streaming responses and persisted local history.
+          </p>
+          <p className="workspace-context">
+            {project
+              ? `Scoped to ${project.name} at ${project.path}`
+              : "No active project. Chat is using the global conversation."}
           </p>
         </div>
         <span className="phase-badge">Multi-provider</span>
@@ -353,6 +450,28 @@ export function ChatView({ onOpenProviders }: ChatViewProps) {
             {status}
           </p>
         </div>
+
+        {routeSuggestion ? (
+          <div className="chat-router-suggestion">
+            <div>
+              <strong>Router suggestion: {routeSuggestion.ruleName}</strong>
+              <p>
+                Route to {routeSuggestion.targetProviderId}
+                {routeSuggestion.targetModelId
+                  ? ` / ${routeSuggestion.targetModelId}`
+                  : ""}
+                . {routeSuggestion.reason}
+              </p>
+            </div>
+            <button
+              disabled={refreshingModels || sending}
+              onClick={() => void applyRouteSuggestion()}
+              type="button"
+            >
+              Apply suggestion
+            </button>
+          </div>
+        ) : null}
 
         <div className="message-list" aria-label="Chat messages">
           {renderedMessages.length > 0 ? (

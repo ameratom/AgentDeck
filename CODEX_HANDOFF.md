@@ -8,11 +8,11 @@ Build folder:
 
 Remote: `https://github.com/ameratom/AgentDeck` (`main`)
 
-Latest release: [v0.1.2](https://github.com/ameratom/AgentDeck/releases/tag/v0.1.2)
+Latest release: [v0.1.3](https://github.com/ameratom/AgentDeck/releases/tag/v0.1.3)
 
 ## Current Status (June 2026)
 
-Phases **0–9** are complete. Phase **10** external MCP connectors shipped in v0.1.2.
+Phases **0–11** are complete. v0.1.3 release build is ready to sign, notarize, and publish.
 
 ### Shipped
 
@@ -23,14 +23,19 @@ Phases **0–9** are complete. Phase **10** external MCP connectors shipped in v
 | Encrypted credential store + legacy Keychain import | ✔ |
 | MCP inventory + HTTP server (`:7823`) | ✔ |
 | External MCP connectors (Grok bridge, filesystem, git) | ✔ |
+| xAI Research MCP connector (read-only web research) | ✔ |
 | Plugins/skills registry + audit log | ✔ |
 | Manual handoffs with approval gate | ✔ |
 | Handoff router rules (Settings + suggestions) | ✔ |
-| Signed + notarized macOS DMG | ✔ v0.1.2 |
+| Local project registry + active workspace selection | ✔ |
+| Project-scoped config discovery, graph context, chat, and handoffs | ✔ |
+| Per-project filesystem/Git MCP profiles with validated exports | ✔ |
+| Secure MCP Tunnel controls (MCP view) | ✔ |
+| Signed + notarized macOS DMG | ✔ v0.1.2 (v0.1.3 pending publish) |
 
 ### Project MCP config (`.mcp.json`)
 
-Registered servers: `agentdeck`, `grok-mcp`, `filesystem`, `git` — all connected in Claude Code.
+Registered servers: `agentdeck`, `grok-mcp`, `filesystem`, `git`, `agentdeck-xai-research-mcp` — connect in Claude Code as needed.
 
 Grok auth flows through `~/Library/Application Support/com.agentdeck.desktop/grok-mcp.env` (synced from encrypted xAI credentials).
 
@@ -40,6 +45,7 @@ Grok auth flows through `~/Library/Application Support/com.agentdeck.desktop/gro
 pnpm install
 pnpm tauri dev
 pnpm test
+pnpm test:xai-research-mcp
 cd src-tauri && cargo test
 ```
 
@@ -49,8 +55,10 @@ cd src-tauri && cargo test
 source scripts/notarize.local.env
 pnpm tauri build
 ./scripts/notarize-macos.sh
-./scripts/create-github-release.sh v0.1.2
+./scripts/create-github-release.sh v0.1.3
 ```
+
+Checklist: `RELEASE_CHECKLIST_v0.1.3.md`
 
 ## Mission
 
@@ -67,11 +75,11 @@ The first release is **observability + controlled chat routing**, not full auton
 - Import file: `chatgpt-app-submission.json` (read-only v1 profile, 7 tools)
 - Guide: `docs/chatgpt-app-submission.md`
 - Validate: `./scripts/validate-chatgpt-submission.sh`
-- Tunnel helper: `scripts/run-chatgpt-mcp-tunnel.sh` (requires `chatgpt-mcp-tunnel.local.env`)
+- Tunnel helper: `scripts/run-chatgpt-mcp-tunnel.sh` (uses `~/Library/Application Support/com.agentdeck.desktop/chatgpt-mcp-tunnel.env`)
+- Tunnel UI: MCP view → Start tunnel → Open operator UI
 
 ## Next candidates
 
-1. Submit ChatGPT app via Platform dashboard after tunnel smoke test
-2. Chat view router suggestions (parity with Handoffs)
-3. xAI Research MCP wrapper (`agentdeck-xai-research-mcp`)
-4. Router rules: seed sensible defaults on first run
+1. Publish v0.1.3 signed + notarized DMG to GitHub Releases
+2. Submit ChatGPT app via Platform dashboard after tunnel smoke test
+3. Phase 12: project-aware onboarding, ChatGPT submission v2 metadata, Claude Code MCP serve export

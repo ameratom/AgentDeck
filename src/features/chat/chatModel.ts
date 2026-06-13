@@ -24,6 +24,15 @@ export function resolvePreferredModel(
     : selectDefaultModel(models);
 }
 
+export function resolveSuggestedChatModel(
+  models: LocalModel[],
+  suggestedId: string | null,
+): string {
+  return suggestedId && models.some((model) => model.id === suggestedId)
+    ? suggestedId
+    : selectDefaultModel(models);
+}
+
 export function toChatHistory(messages: ChatMessage[]): ChatMessageInput[] {
   return messages.map((message) => ({
     role: message.role,
@@ -47,6 +56,7 @@ export function selectDefaultProvider(
 
 export function buildChatRequest(
   conversationId: string,
+  projectId: string | null,
   providerId: string,
   model: string,
   messages: ChatMessage[],
@@ -55,6 +65,7 @@ export function buildChatRequest(
 ): ChatRequest {
   return {
     conversationId,
+    projectId,
     providerId,
     model,
     enableAgentTools,

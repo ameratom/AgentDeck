@@ -10,6 +10,7 @@ import {
 
 const baseScan: EnvironmentScan = {
   scannedAt: "2026-06-10T12:00:00Z",
+  project: null,
   tools: [
     { name: "codex", available: true, version: "1.0", path: "/usr/bin/codex", error: null },
     { name: "claude", available: false, version: null, path: null, error: "missing" },

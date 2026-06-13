@@ -44,11 +44,18 @@ export interface DiscoveredEntity {
 
 export interface EnvironmentScan {
   scannedAt: string;
+  project: ProjectContext | null;
   tools: ToolStatus[];
   providers: ProviderHealth[];
   processes: DetectedProcess[];
   configs: DetectedConfig[];
   entities: DiscoveredEntity[];
+}
+
+export interface ProjectContext {
+  id: string;
+  name: string;
+  path: string;
 }
 
 export interface PreflightResult {
@@ -81,6 +88,7 @@ export interface ChatMessage {
 
 export interface ChatRequest {
   conversationId: string;
+  projectId?: string | null;
   providerId: string;
   model: string;
   messages: ChatMessageInput[];
@@ -204,12 +212,49 @@ export interface McpToggleResult {
   backupPath: string;
 }
 
+export interface ProjectConnectorSettings {
+  projectId: string;
+  projectName: string;
+  projectPath: string;
+  filesystemEnabled: boolean;
+  gitEnabled: boolean;
+  claudeExportPath: string;
+  codexExportPath: string;
+  updatedAt: string;
+}
+
 export interface GrokMcpBridgeStatus {
   path: string;
   exists: boolean;
   hasKey: boolean;
   updatedAt: string | null;
   detail: string;
+}
+
+export interface SecureTunnelStatus {
+  configured: boolean;
+  running: boolean;
+  ready: boolean;
+  pid: number | null;
+  configPath: string;
+  adminUrl: string | null;
+  logPath: string;
+  detail: string;
+}
+
+export interface ProjectWorkspace {
+  id: string;
+  name: string;
+  path: string;
+  exists: boolean;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectWorkspaceList {
+  loadedAt: string;
+  projects: ProjectWorkspace[];
 }
 
 export interface RouterRule {
@@ -250,6 +295,7 @@ export interface AgentPermissionMatrix {
 }
 
 export interface HandoffRequest {
+  projectId?: string | null;
   sourceAgentId: string;
   sourceAgentName: string;
   targetProviderId: string;
@@ -263,6 +309,7 @@ export interface HandoffRequest {
 
 export interface HandoffRun {
   id: string;
+  projectId: string | null;
   threadId: string;
   sourceAgentId: string;
   sourceAgentName: string;

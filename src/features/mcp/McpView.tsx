@@ -1,7 +1,14 @@
+import { listen } from "@tauri-apps/api/event";
 import { useEffect, useState } from "react";
 import {
   grokMcpBridgeStatus,
+  loadProjectConnectorSettings,
+  openSecureTunnelUi,
   scanMcpInventory,
+  secureTunnelStatus,
+  saveProjectConnectorSettings,
+  startSecureTunnel,
+  stopSecureTunnel,
   syncGrokMcpBridge,
   toggleMcpServer,
 } from "../../lib/invoke";
@@ -9,6 +16,8 @@ import type {
   GrokMcpBridgeStatus,
   McpInventory,
   McpToggleResult,
+  ProjectConnectorSettings,
+  SecureTunnelStatus,
 } from "../../lib/types";
 import { canToggleServer, existingSources, riskCounts } from "./mcpModel";
 
@@ -22,6 +31,15 @@ export function McpView() {
     null,
   );
   const [syncingBridge, setSyncingBridge] = useState(false);
+  const [tunnelStatus, setTunnelStatus] = useState<SecureTunnelStatus | null>(
+    null,
+  );
+  const [tunnelAction, setTunnelAction] = useState<
+    "refresh" | "start" | "stop" | "open" | null
+  >(null);
+  const [projectConnectors, setProjectConnectors] =
+    useState<ProjectConnectorSettings | null>(null);
+  const [savingProjectConnectors, setSavingProjectConnectors] = useState(false);
 
   async function scan(): Promise<void> {
     setScanning(true);
@@ -76,18 +94,78 @@ export function McpView() {
     }
   }
 
+  async function updateTunnel(
+    action: "refresh" | "start" | "stop" | "open",
+  ): Promise<void> {
+    setTunnelAction(action);
+    setStatus(
+      action === "start"
+        ? "Starting OpenAI Secure MCP Tunnel..."
+        : action === "stop"
+          ? "Stopping OpenAI Secure MCP Tunnel..."
+          : action === "open"
+            ? "Opening tunnel operator UI..."
+            : "Refreshing tunnel status...",
+    );
+    try {
+      const nextStatus =
+        action === "start"
+          ? await startSecureTunnel()
+          : action === "stop"
+            ? await stopSecureTunnel()
+            : action === "open"
+              ? await openSecureTunnelUi()
+              : await secureTunnelStatus();
+      setTunnelStatus(nextStatus);
+      setStatus(nextStatus.detail);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      setStatus(`Secure tunnel ${action} failed: ${detail}`);
+    } finally {
+      setTunnelAction(null);
+    }
+  }
+
+  async function saveProjectConnectors(): Promise<void> {
+    if (!projectConnectors) {
+      return;
+    }
+    setSavingProjectConnectors(true);
+    setStatus(`Exporting connector profile for ${projectConnectors.projectName}...`);
+    try {
+      const nextSettings = await saveProjectConnectorSettings({
+        filesystemEnabled: projectConnectors.filesystemEnabled,
+        gitEnabled: projectConnectors.gitEnabled,
+      });
+      const nextInventory = await scanMcpInventory();
+      setProjectConnectors(nextSettings);
+      setInventory(nextInventory);
+      setStatus(
+        `Project connector exports updated for ${nextSettings.projectName}. Existing client configs were not modified.`,
+      );
+    } catch (error) {
+      setStatus(`Project connector export failed: ${formatError(error)}`);
+    } finally {
+      setSavingProjectConnectors(false);
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
 
     async function load(): Promise<void> {
       try {
-        const [nextInventory, nextBridgeStatus] = await Promise.all([
+        const [nextInventory, nextBridgeStatus, nextTunnelStatus, nextProjectConnectors] = await Promise.all([
           scanMcpInventory(),
           grokMcpBridgeStatus(),
+          secureTunnelStatus(),
+          loadProjectConnectorSettings().catch(() => null),
         ]);
         if (!cancelled) {
           setInventory(nextInventory);
           setBridgeStatus(nextBridgeStatus);
+          setTunnelStatus(nextTunnelStatus);
+          setProjectConnectors(nextProjectConnectors);
           setStatus(
             `Found ${nextInventory.servers.length} server definitions across ${
               existingSources(nextInventory.sources).length
@@ -109,6 +187,24 @@ export function McpView() {
     void load();
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen("project-changed", () => {
+      void Promise.all([
+        scanMcpInventory(),
+        loadProjectConnectorSettings().catch(() => null),
+      ]).then(([nextInventory, nextSettings]) => {
+        setInventory(nextInventory);
+        setProjectConnectors(nextSettings);
+      });
+    }).then((dispose) => {
+      unlisten = dispose;
+    });
+    return () => {
+      unlisten?.();
     };
   }, []);
 
@@ -193,6 +289,162 @@ export function McpView() {
         >
           {syncingBridge ? "Syncing..." : "Sync Grok MCP bridge"}
         </button>
+      </section>
+
+      {projectConnectors ? (
+        <section
+          className="mcp-project-connectors"
+          aria-label="Active project connector profile"
+        >
+          <div className="mcp-project-connectors-heading">
+            <div>
+              <p className="eyebrow">Active project</p>
+              <h3>{projectConnectors.projectName} connector profile</h3>
+              <p>
+                Generate project-bound Claude JSON and Codex TOML snippets.
+                AgentDeck does not modify either client&apos;s configuration.
+              </p>
+            </div>
+            <span className="project-state active">Export only</span>
+          </div>
+          <p className="workspace-context">{projectConnectors.projectPath}</p>
+          <div className="mcp-project-connector-options">
+            <label>
+              <input
+                checked={projectConnectors.filesystemEnabled}
+                disabled={savingProjectConnectors}
+                onChange={(event) =>
+                  setProjectConnectors((current) =>
+                    current
+                      ? { ...current, filesystemEnabled: event.target.checked }
+                      : current,
+                  )
+                }
+                type="checkbox"
+              />
+              <span>
+                <strong>Filesystem MCP</strong>
+                <small>Read access constrained to this project root.</small>
+              </span>
+            </label>
+            <label>
+              <input
+                checked={projectConnectors.gitEnabled}
+                disabled={savingProjectConnectors}
+                onChange={(event) =>
+                  setProjectConnectors((current) =>
+                    current
+                      ? { ...current, gitEnabled: event.target.checked }
+                      : current,
+                  )
+                }
+                type="checkbox"
+              />
+              <span>
+                <strong>Git MCP</strong>
+                <small>Read-oriented status, log, branch, and diff tools.</small>
+              </span>
+            </label>
+          </div>
+          <dl>
+            <Detail label="Claude export" value={projectConnectors.claudeExportPath} />
+            <Detail label="Codex export" value={projectConnectors.codexExportPath} />
+          </dl>
+          <button
+            disabled={savingProjectConnectors}
+            onClick={() => void saveProjectConnectors()}
+            type="button"
+          >
+            {savingProjectConnectors ? "Exporting..." : "Save and export profile"}
+          </button>
+        </section>
+      ) : null}
+
+      <section className="mcp-tunnel-panel" aria-label="OpenAI Secure MCP Tunnel">
+        <div className="mcp-tunnel-heading">
+          <div>
+            <p className="eyebrow">Remote connector</p>
+            <h3>OpenAI Secure MCP Tunnel</h3>
+            <p>
+              Start a scoped outbound connection from ChatGPT to AgentDeck&apos;s
+              loopback MCP server. AgentDeck owns the PID, health URL, and log
+              for processes started here.
+            </p>
+          </div>
+          <span
+            className={`tunnel-state ${
+              tunnelStatus?.ready
+                ? "ready"
+                : tunnelStatus?.running
+                  ? "pending"
+                  : "stopped"
+            }`}
+          >
+            {tunnelStatus?.ready
+              ? "Ready"
+              : tunnelStatus?.running
+                ? "Starting"
+                : "Stopped"}
+          </span>
+        </div>
+        <dl>
+          <Detail
+            label="Configuration"
+            value={
+              tunnelStatus?.configured
+                ? tunnelStatus.configPath
+                : tunnelStatus?.configPath ?? "Loading..."
+            }
+          />
+          <Detail
+            label="Process"
+            value={
+              tunnelStatus?.pid
+                ? `PID ${tunnelStatus.pid}`
+                : "No AgentDeck-managed process"
+            }
+          />
+          <Detail label="Operator UI" value={tunnelStatus?.adminUrl ?? "Start tunnel first"} />
+          <Detail label="Log" value={tunnelStatus?.logPath ?? "Loading..."} />
+        </dl>
+        <p className="mcp-toggle-note">{tunnelStatus?.detail}</p>
+        <div className="mcp-tunnel-actions">
+          <button
+            disabled={
+              tunnelAction !== null ||
+              !tunnelStatus?.configured ||
+              tunnelStatus.running
+            }
+            onClick={() => void updateTunnel("start")}
+            type="button"
+          >
+            {tunnelAction === "start" ? "Starting..." : "Start tunnel"}
+          </button>
+          <button
+            className="secondary-button"
+            disabled={tunnelAction !== null || !tunnelStatus?.running}
+            onClick={() => void updateTunnel("stop")}
+            type="button"
+          >
+            {tunnelAction === "stop" ? "Stopping..." : "Stop tunnel"}
+          </button>
+          <button
+            className="secondary-button"
+            disabled={tunnelAction !== null || !tunnelStatus?.adminUrl}
+            onClick={() => void updateTunnel("open")}
+            type="button"
+          >
+            Open operator UI
+          </button>
+          <button
+            className="secondary-button"
+            disabled={tunnelAction !== null}
+            onClick={() => void updateTunnel("refresh")}
+            type="button"
+          >
+            Refresh status
+          </button>
+        </div>
       </section>
 
       <section className="mcp-source-strip" aria-label="MCP config sources">
@@ -308,4 +560,8 @@ function Detail({ label, value }: { label: string; value: string }) {
       <dd>{value}</dd>
     </div>
   );
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

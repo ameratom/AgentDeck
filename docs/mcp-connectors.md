@@ -168,6 +168,25 @@ codex mcp add grok-mcp \
 - `web_search`, `x_search` — live research
 - `list_models` — model inventory
 
+### AgentDeck xAI Research wrapper
+
+For a smaller read-only research surface, register:
+
+```bash
+codex mcp add agentdeck-xai-research-mcp -- \
+  /path/to/AgentDeck/scripts/xai-research-mcp-launcher.sh
+```
+
+The wrapper reuses AgentDeck's mode-`0600` `grok-mcp.env` bridge and exposes:
+
+- `xai_research.search_web`
+- `xai_research.answer_with_sources`
+- `xai_research.summarize_url`
+
+Requests use xAI's Responses API with the `web_search` tool and `store: false`.
+Only action metadata, duration, model, and source count are written to the local
+`xai-research-mcp.audit.jsonl`; prompts and responses are not logged.
+
 ---
 
 ## 3. Claude Code as MCP server

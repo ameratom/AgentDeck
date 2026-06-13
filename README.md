@@ -28,7 +28,7 @@ pnpm tauri build
 Artifacts:
 
 - `src-tauri/target/release/bundle/macos/AgentDeck.app`
-- `src-tauri/target/release/bundle/dmg/AgentDeck_0.1.2_aarch64.dmg`
+- `src-tauri/target/release/bundle/dmg/AgentDeck_0.1.3_aarch64.dmg`
 
 ## Docs
 

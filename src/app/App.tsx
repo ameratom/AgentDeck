@@ -12,6 +12,7 @@ import { McpView } from "../features/mcp/McpView";
 import { OnboardingView } from "../features/onboarding/OnboardingView";
 import { ProvidersView } from "../features/providers/ProvidersView";
 import { PluginsView } from "../features/plugins/PluginsView";
+import { ProjectsView } from "../features/projects/ProjectsView";
 import { SettingsView } from "../features/settings/SettingsView";
 import { isEnvironmentScan } from "../lib/discovery";
 import { loadAppSettings, scanEnvironment } from "../lib/invoke";
@@ -30,6 +31,7 @@ const navigation = [
   "Providers",
   "MCP",
   "Plugins",
+  "Projects",
   "Settings",
 ] as const;
 
@@ -43,6 +45,7 @@ type View =
   | "Providers"
   | "MCP"
   | "Plugins"
+  | "Projects"
   | "Settings";
 
 type Result = PreflightResult | EnvironmentScan;
@@ -108,6 +111,21 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    void listen("project-changed", () => {
+      setSelectedEntity(null);
+      void execute("Project scan", scanEnvironment);
+    }).then((dispose) => {
+      unlisten = dispose;
+    });
+
+    return () => {
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function loadOnboardingState(): Promise<void> {
@@ -145,6 +163,7 @@ export default function App() {
         view === "Providers" ||
         view === "MCP" ||
         view === "Plugins" ||
+        view === "Projects" ||
         view === "Settings"
       ) {
         setActiveView(view);
@@ -199,6 +218,7 @@ export default function App() {
       item === "Providers" ||
       item === "MCP" ||
       item === "Plugins" ||
+      item === "Projects" ||
       item === "Settings"
     ) {
       setActiveView(item);
@@ -224,6 +244,7 @@ export default function App() {
               item === "Providers" ||
               item === "MCP" ||
               item === "Plugins" ||
+              item === "Projects" ||
               item === "Settings";
 
             return (
@@ -251,7 +272,10 @@ export default function App() {
       </aside>
 
       {activeView === "Chat" ? (
-        <ChatView onOpenProviders={() => navigate("Providers")} />
+        <ChatView
+          project={scan?.project ?? null}
+          onOpenProviders={() => navigate("Providers")}
+        />
       ) : activeView === "Handoffs" ? (
         <HandoffView
           highlightRunIndex={handoffRunIndex}
@@ -265,6 +289,8 @@ export default function App() {
         <ProvidersView />
       ) : activeView === "Plugins" ? (
         <PluginsView />
+      ) : activeView === "Projects" ? (
+        <ProjectsView />
       ) : activeView === "Settings" ? (
         <SettingsView />
       ) : activeView === "Graph" ? (
@@ -356,6 +382,11 @@ function GraphView({
         <div>
           <p className="eyebrow">Graph View</p>
           <h2>Connection Map</h2>
+          <p className="workspace-context">
+            {scan?.project
+              ? `Project configs scoped to ${scan.project.name} at ${scan.project.path}; runtime health remains machine-wide.`
+              : "No active project. Showing machine-wide runtime health and user-level configs."}
+          </p>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>

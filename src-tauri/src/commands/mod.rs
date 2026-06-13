@@ -5,6 +5,7 @@ pub mod connectors;
 pub mod handoffs;
 pub mod mcp;
 pub mod plugins;
+pub mod projects;
 pub mod providers;
 pub mod router;
 
@@ -23,7 +24,7 @@ use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
 use crate::models::{
     DetectedConfig, DetectedProcess, DiscoveredEntity, EnvironmentScan, PreflightResult,
-    ProviderHealth, ToolStatus,
+    ProjectContext, ProviderHealth, ToolStatus,
 };
 use crate::storage;
 
@@ -60,16 +61,56 @@ pub fn run_preflight() -> PreflightResult {
 
 #[tauri::command]
 pub fn scan_environment() -> EnvironmentScan {
+    scan_environment_for_project(None)
+}
+
+#[tauri::command]
+pub fn scan_project_environment(app: tauri::AppHandle) -> Result<EnvironmentScan, String> {
+    let database_path = storage::database_path(&app)?;
+    let connection = storage::open_database(&database_path)?;
+    let project = storage::load_active_project(&connection)?;
+    Ok(scan_environment_for_project(project.as_ref()))
+}
+
+pub fn scan_environment_for_app(app: &tauri::AppHandle) -> EnvironmentScan {
+    let project = storage::database_path(app)
+        .and_then(|path| storage::open_database(&path))
+        .and_then(|connection| storage::load_active_project(&connection))
+        .ok()
+        .flatten();
+    scan_environment_for_project(project.as_ref())
+}
+
+fn scan_environment_for_project(project: Option<&crate::models::ProjectWorkspace>) -> EnvironmentScan {
     let tools = inspect_tools(&TOOL_NAMES);
     let xai = providers::xai_readiness();
     let provider_healths = vec![check_lm_studio(), xai.health.clone()];
     let processes = scan_agent_processes();
-    let configs = detect_known_configs();
+    let configs = detect_known_configs(project.map(|project| Path::new(&project.path)));
     let grok = providers::grok_source_agent(&xai);
-    let entities = normalize_entities(&tools, &provider_healths, &processes, &configs, grok);
+    let mut entities = normalize_entities(&tools, &provider_healths, &processes, &configs, grok);
+    let project_context = project.map(|project| ProjectContext {
+        id: project.id.clone(),
+        name: project.name.clone(),
+        path: project.path.clone(),
+    });
+    if let Some(project) = &project_context {
+        let mut metadata = BTreeMap::new();
+        metadata.insert("path".to_owned(), project.path.clone());
+        metadata.insert("scope".to_owned(), "active-project".to_owned());
+        entities.push(DiscoveredEntity {
+            id: project.id.clone(),
+            entity_type: "project".to_owned(),
+            name: project.name.clone(),
+            status: "active".to_owned(),
+            source: "project-registry".to_owned(),
+            metadata,
+        });
+    }
 
     EnvironmentScan {
         scanned_at: Utc::now().to_rfc3339(),
+        project: project_context,
         tools,
         providers: provider_healths,
         processes,
@@ -253,18 +294,12 @@ fn scan_agent_processes() -> Vec<DetectedProcess> {
     processes
 }
 
-fn detect_known_configs() -> Vec<DetectedConfig> {
+fn detect_known_configs(project_root: Option<&Path>) -> Vec<DetectedConfig> {
     let Some(home) = env::var_os("HOME").map(PathBuf::from) else {
         return Vec::new();
     };
-    let current = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| env::current_dir().unwrap_or_default());
-    let project_content_safe = !["Desktop", "Documents", "Downloads"]
-        .iter()
-        .any(|folder| current.starts_with(home.join(folder)));
-    let candidates = [
+    let project_root = project_root.map(Path::to_path_buf);
+    let mut candidates = vec![
         ("Codex", home.join(".codex/config.toml"), true),
         ("Claude Code", home.join(".claude.json"), true),
         ("Claude Code", home.join(".claude/settings.json"), true),
@@ -272,19 +307,15 @@ fn detect_known_configs() -> Vec<DetectedConfig> {
         ("Hermes", home.join(".hermes/config.json"), true),
         ("OpenClaw", home.join(".openclaw/config.json"), true),
         ("LM Studio", home.join(".lmstudio/mcp.json"), true),
-        ("Project", current.join("AGENTS.md"), project_content_safe),
-        (
-            "Codex",
-            current.join(".codex/config.toml"),
-            project_content_safe,
-        ),
-        (
-            "Claude Code",
-            current.join(".claude/settings.json"),
-            project_content_safe,
-        ),
-        ("MCP", current.join(".mcp.json"), project_content_safe),
     ];
+    if let Some(root) = project_root {
+        candidates.extend([
+            ("Project", root.join("AGENTS.md"), true),
+            ("Codex", root.join(".codex/config.toml"), true),
+            ("Claude Code", root.join(".claude/settings.json"), true),
+            ("MCP", root.join(".mcp.json"), true),
+        ]);
+    }
 
     candidates
         .into_iter()
@@ -938,12 +969,33 @@ mod tests {
     #[test]
     fn detect_known_configs_completes_quickly() {
         let started = std::time::Instant::now();
-        let configs = detect_known_configs();
+        let configs = detect_known_configs(None);
         assert!(
             started.elapsed() < Duration::from_secs(8),
             "config detection exceeded 8 seconds, found {} configs",
             configs.len()
         );
+    }
+
+    #[test]
+    fn project_config_discovery_uses_registered_root() {
+        let root = std::env::temp_dir().join(format!(
+            "agentdeck-project-scan-{}",
+            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("AGENTS.md"), "# Project instructions").unwrap();
+
+        let configs = detect_known_configs(Some(&root));
+        let project_path = root.join("AGENTS.md").to_string_lossy().into_owned();
+        let project = configs
+            .iter()
+            .find(|config| config.path == project_path)
+            .expect("project AGENTS.md should be discovered");
+        assert!(project.exists);
+        assert_eq!(project.kind, "Project");
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

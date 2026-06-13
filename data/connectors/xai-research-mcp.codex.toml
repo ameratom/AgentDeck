@@ -1,0 +1,3 @@
+[mcp_servers.agentdeck-xai-research-mcp]
+command = "/path/to/AgentDeck/scripts/xai-research-mcp-launcher.sh"
+args = []

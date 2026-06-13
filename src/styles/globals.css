@@ -173,6 +173,13 @@ nav {
   padding: 34px 36px 48px;
 }
 
+.projects-workspace {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  padding: 34px 36px 48px;
+}
+
 header,
 .panel-heading {
   display: flex;
@@ -191,6 +198,14 @@ header > div > p:last-child {
   max-width: 670px;
   color: #84939d;
   line-height: 1.65;
+}
+
+.workspace-context {
+  margin-top: 8px;
+  color: #7895a1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  overflow-wrap: anywhere;
 }
 
 .phase-badge {
@@ -776,6 +791,218 @@ header > div > p:last-child {
   margin: 0 auto;
   font-size: 12px;
   line-height: 1.6;
+}
+
+.mcp-tunnel-panel {
+  display: grid;
+  gap: 16px;
+  margin: 18px 0;
+  padding: 20px;
+  border: 1px solid #24414b;
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 88% 0%, rgba(35, 102, 119, 0.18), transparent 34%),
+    rgba(9, 16, 21, 0.96);
+}
+
+.mcp-project-connectors {
+  display: grid;
+  gap: 16px;
+  margin: 18px 0;
+  padding: 20px;
+  border: 1px solid #285245;
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 92% 0%, rgba(41, 113, 91, 0.17), transparent 36%),
+    rgba(9, 17, 18, 0.96);
+}
+
+.mcp-project-connectors-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.mcp-project-connectors-heading p:last-child {
+  max-width: 680px;
+  margin: 6px 0 0;
+  color: #91a4ac;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.mcp-project-connector-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.mcp-project-connector-options label {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 14px;
+  border: 1px solid #263941;
+  border-radius: 9px;
+  background: #0d171b;
+}
+
+.mcp-project-connector-options input {
+  margin-top: 3px;
+}
+
+.mcp-project-connector-options span {
+  display: grid;
+  gap: 5px;
+}
+
+.mcp-project-connector-options small {
+  color: #71858e;
+  line-height: 1.5;
+}
+
+.mcp-project-connectors dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.mcp-project-connectors dl div {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #213139;
+  border-radius: 8px;
+  background: #0c1419;
+}
+
+.mcp-project-connectors dt {
+  margin-bottom: 6px;
+  color: #637983;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.mcp-project-connectors dd {
+  margin: 0;
+  color: #a8bbc3;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+  overflow-wrap: anywhere;
+}
+
+.mcp-project-connectors > button {
+  justify-self: start;
+  padding: 9px 12px;
+  border: 1px solid #356274;
+  border-radius: 7px;
+  color: #dcecf2;
+  background: #17313c;
+  cursor: pointer;
+}
+
+.mcp-project-connectors > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.mcp-tunnel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.mcp-tunnel-heading h3 {
+  margin-bottom: 6px;
+}
+
+.mcp-tunnel-heading p {
+  max-width: 680px;
+  margin: 0;
+  color: #91a4ac;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.tunnel-state {
+  padding: 6px 9px;
+  border: 1px solid #39444c;
+  border-radius: 999px;
+  color: #9aaab1;
+  background: #121a20;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.tunnel-state.ready {
+  border-color: #285245;
+  color: #8ed8bb;
+  background: #10201b;
+}
+
+.tunnel-state.pending {
+  border-color: #66542f;
+  color: #e1c274;
+  background: #241e11;
+}
+
+.mcp-tunnel-panel dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 20px;
+  margin: 0;
+}
+
+.mcp-tunnel-panel dl div {
+  padding: 9px 0;
+  border-top: 1px solid #1e2c34;
+}
+
+.mcp-tunnel-panel dt {
+  margin-bottom: 5px;
+  color: #647983;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.mcp-tunnel-panel dd {
+  margin: 0;
+  color: #b8c9d0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+  overflow-wrap: anywhere;
+}
+
+.mcp-tunnel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.mcp-tunnel-actions button {
+  padding: 9px 12px;
+  border: 1px solid #356274;
+  border-radius: 7px;
+  color: #dcecf2;
+  background: #17313c;
+  cursor: pointer;
+}
+
+.mcp-tunnel-actions button.secondary-button {
+  border-color: #3a4650;
+  color: #b8c6cc;
+  background: #151c22;
+}
+
+.mcp-tunnel-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
 }
 
 .plugin-status {
@@ -2182,7 +2409,8 @@ pre {
   gap: 8px;
 }
 
-.handoff-router-suggestion {
+.handoff-router-suggestion,
+.chat-router-suggestion {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -2194,10 +2422,15 @@ pre {
   background: #0d141a;
 }
 
-.handoff-router-suggestion p {
+.handoff-router-suggestion p,
+.chat-router-suggestion p {
   margin: 6px 0 0;
   color: #8ea0a8;
   font-size: 12px;
+}
+
+.chat-router-suggestion {
+  margin: 0 18px 14px;
 }
 
 .settings-router {
@@ -2260,6 +2493,223 @@ pre {
 
 .chat-router-suggestion {
   margin-bottom: 12px;
+}
+
+.project-status {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 36px;
+  margin: 18px 0;
+  color: #78909a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+}
+
+.project-status .indicator {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.project-loaded-at {
+  margin-left: auto;
+  color: #667a84;
+}
+
+.project-active-panel,
+.project-register-panel,
+.project-card {
+  border: 1px solid #202a34;
+  border-radius: 12px;
+  background: rgba(10, 15, 20, 0.92);
+}
+
+.project-active-panel {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 20px;
+  border-color: #285245;
+  background:
+    radial-gradient(circle at 88% 0%, rgba(41, 113, 91, 0.18), transparent 38%),
+    rgba(10, 18, 19, 0.94);
+}
+
+.project-active-panel h3 {
+  margin-bottom: 7px;
+  font-size: 22px;
+}
+
+.project-active-panel p:last-child {
+  margin: 0;
+  color: #92a6ae;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.project-state {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border: 1px solid #39444c;
+  border-radius: 999px;
+  color: #9aaab1;
+  background: #121a20;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.project-state.active {
+  border-color: #285245;
+  color: #8ed8bb;
+  background: #10201b;
+}
+
+.project-state.missing {
+  border-color: #66542f;
+  color: #e1c274;
+  background: #241e11;
+}
+
+.project-register-panel {
+  margin-top: 18px;
+  padding: 0 20px 20px;
+}
+
+.project-form {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.4fr) minmax(210px, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+}
+
+.project-form label {
+  display: grid;
+  gap: 6px;
+  color: #82959e;
+  font-size: 11px;
+}
+
+.project-form label > span {
+  color: #60747e;
+}
+
+.project-form input {
+  width: 100%;
+  padding: 10px 11px;
+  border: 1px solid #2b3a44;
+  border-radius: 7px;
+  color: #d5e2e8;
+  background: #101820;
+  font: inherit;
+}
+
+.project-form input:focus {
+  border-color: #4e7b8d;
+  outline: 2px solid rgba(78, 123, 141, 0.22);
+}
+
+.project-form input[aria-invalid="true"] {
+  border-color: #8a4e4e;
+}
+
+.project-form small {
+  color: #647983;
+  font-size: 9px;
+}
+
+.project-form .project-field-error {
+  color: #d79292;
+}
+
+.project-form button,
+.project-card-actions button {
+  padding: 9px 12px;
+  border: 1px solid #356274;
+  border-radius: 7px;
+  color: #dcecf2;
+  background: #17313c;
+  cursor: pointer;
+}
+
+.project-form button {
+  align-self: start;
+  margin-top: 17px;
+}
+
+.project-form button:hover:not(:disabled),
+.project-card-actions button:hover:not(:disabled) {
+  background: #1d4050;
+}
+
+.project-form button:disabled,
+.project-card-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.project-list {
+  display: grid;
+  gap: 12px;
+}
+
+.project-card {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.project-card.active {
+  border-color: #285245;
+}
+
+.project-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.project-card-heading h3 {
+  margin-bottom: 7px;
+}
+
+.project-card-heading p {
+  margin: 0;
+  color: #7f949d;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.project-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.project-card-actions .project-remove-button {
+  border-color: #674040;
+  color: #d6aaaa;
+  background: #231617;
+}
+
+.project-card-actions .project-remove-button:hover:not(:disabled) {
+  background: #321d1f;
+}
+
+@media (max-width: 1100px) {
+  .project-form {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .project-form button {
+    justify-self: start;
+    margin-top: 0;
+  }
 }
 
 .empty-state {

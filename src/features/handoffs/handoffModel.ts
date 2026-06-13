@@ -59,6 +59,16 @@ export function resolvePreferredHandoffModel(
     : selectDefaultModelFromList(provider.models);
 }
 
+export function resolveSuggestedHandoffModel(
+  provider: ProviderAdapterStatus,
+  suggestedId: string | null,
+): string {
+  const models = filterChatModels(provider.models);
+  return suggestedId && models.some((model) => model.id === suggestedId)
+    ? suggestedId
+    : selectDefaultModel(provider);
+}
+
 export function selectDefaultModelFromList(models: LocalModel[]): string {
   const chatModels = filterChatModels(models);
   const qwen = chatModels.find((model) => model.id.toLowerCase().includes("qwen"));
@@ -69,6 +79,7 @@ export function selectDefaultModelFromList(models: LocalModel[]): string {
 }
 
 export function buildHandoffRequest(args: {
+  projectId?: string | null;
   sourceAgentId: string;
   sourceAgentName: string;
   provider: ProviderAdapterStatus;
@@ -79,6 +90,7 @@ export function buildHandoffRequest(args: {
   approvals: string[];
 }): HandoffRequest {
   return buildHandoffRequestFromTarget({
+    projectId: args.projectId,
     sourceAgentId: args.sourceAgentId,
     sourceAgentName: args.sourceAgentName,
     targetProviderId: args.provider.id,
@@ -92,6 +104,7 @@ export function buildHandoffRequest(args: {
 }
 
 export function buildHandoffRequestFromTarget(args: {
+  projectId?: string | null;
   sourceAgentId: string;
   sourceAgentName: string;
   targetProviderId: string;
@@ -103,6 +116,7 @@ export function buildHandoffRequestFromTarget(args: {
   approvals: string[];
 }): HandoffRequest {
   return {
+    projectId: args.projectId ?? null,
     sourceAgentId: args.sourceAgentId,
     sourceAgentName: args.sourceAgentName,
     targetProviderId: args.targetProviderId,

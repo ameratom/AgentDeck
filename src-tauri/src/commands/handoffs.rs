@@ -40,6 +40,11 @@ pub(crate) fn dispatch_handoff(path: &Path, request: HandoffRequest) -> Result<H
     }
 
     let connection = storage::open_database(path)?;
+    let project = request
+        .project_id
+        .as_deref()
+        .map(|project_id| storage::require_active_project(&connection, project_id))
+        .transpose()?;
     permissions::require_permission(&connection, &request.source_agent_id, "dispatch-handoff")?;
     let started_at = Utc::now();
     let run_id = run_identifier(&request, started_at);
@@ -51,12 +56,13 @@ pub(crate) fn dispatch_handoff(path: &Path, request: HandoffRequest) -> Result<H
     connection
         .execute(
             "INSERT INTO handoff_runs
-                (id, thread_id, source_agent_id, source_agent_name, target_provider_id,
+                (id, project_id, thread_id, source_agent_id, source_agent_name, target_provider_id,
                  target_provider_name, target_model_id, title, task, context, status,
                  output, error, approvals, audit_ref, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'running', '', NULL, ?11, NULL, ?12, ?12)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'running', '', NULL, ?12, NULL, ?13, ?13)",
             params![
                 run_id,
+                request.project_id,
                 thread_id,
                 request.source_agent_id,
                 request.source_agent_name,
@@ -67,12 +73,12 @@ pub(crate) fn dispatch_handoff(path: &Path, request: HandoffRequest) -> Result<H
                 request.task,
                 request.context,
                 approvals,
-                created_at
+                created_at,
             ],
         )
         .map_err(|error| format!("failed to create handoff run: {error}"))?;
 
-    let prompt = build_handoff_prompt(&request);
+    let prompt = build_handoff_prompt(&request, project.as_ref());
     let dispatch_result = providers::dispatch_provider_handoff(
         &request.target_provider_id,
         &request.target_model_id,
@@ -138,7 +144,7 @@ fn load_runs(path: &Path, limit: usize) -> Result<Vec<HandoffRun>, String> {
     let connection = storage::open_database(path)?;
     let mut statement = connection
         .prepare(
-            "SELECT id, thread_id, source_agent_id, source_agent_name, target_provider_id,
+            "SELECT id, project_id, thread_id, source_agent_id, source_agent_name, target_provider_id,
                     target_provider_name, target_model_id, title, task, context, status,
                     output, error, approvals, audit_ref, created_at, updated_at
              FROM handoff_runs
@@ -148,26 +154,27 @@ fn load_runs(path: &Path, limit: usize) -> Result<Vec<HandoffRun>, String> {
         .map_err(|error| format!("failed to prepare handoff run query: {error}"))?;
     let rows = statement
         .query_map([limit as i64], |row| {
-            let approvals: String = row.get(13)?;
+            let approvals: String = row.get(14)?;
             let approvals = serde_json::from_str::<Vec<String>>(&approvals).unwrap_or_default();
             Ok(HandoffRun {
                 id: row.get(0)?,
-                thread_id: row.get(1)?,
-                source_agent_id: row.get(2)?,
-                source_agent_name: row.get(3)?,
-                target_provider_id: row.get(4)?,
-                target_provider_name: row.get(5)?,
-                target_model_id: row.get(6)?,
-                title: row.get(7)?,
-                task: row.get(8)?,
-                context: row.get(9)?,
-                status: row.get(10)?,
-                output: row.get(11)?,
-                error: row.get(12)?,
+                project_id: row.get(1)?,
+                thread_id: row.get(2)?,
+                source_agent_id: row.get(3)?,
+                source_agent_name: row.get(4)?,
+                target_provider_id: row.get(5)?,
+                target_provider_name: row.get(6)?,
+                target_model_id: row.get(7)?,
+                title: row.get(8)?,
+                task: row.get(9)?,
+                context: row.get(10)?,
+                status: row.get(11)?,
+                output: row.get(12)?,
+                error: row.get(13)?,
                 approvals,
-                audit_ref: row.get(14)?,
-                created_at: row.get(15)?,
-                updated_at: row.get(16)?,
+                audit_ref: row.get(15)?,
+                created_at: row.get(16)?,
+                updated_at: row.get(17)?,
             })
         })
         .map_err(|error| format!("failed to load handoff runs: {error}"))?;
@@ -250,6 +257,9 @@ fn validate_handoff_request(request: &HandoffRequest) -> Result<(), String> {
     if request.approvals.is_empty() {
         return Err("Handoff requires explicit approval before dispatch".to_owned());
     }
+    if let Some(project_id) = &request.project_id {
+        storage::validate_identifier("project ID", project_id)?;
+    }
     storage::validate_identifier("source agent ID", &request.source_agent_id)?;
     storage::validate_identifier("source agent name", &request.source_agent_name)?;
     storage::validate_identifier("target provider ID", &request.target_provider_id)?;
@@ -281,9 +291,16 @@ fn validate_optional_text(label: &str, value: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn build_handoff_prompt(request: &HandoffRequest) -> String {
+fn build_handoff_prompt(
+    request: &HandoffRequest,
+    project: Option<&crate::models::ProjectWorkspace>,
+) -> String {
+    let project_context = project
+        .map(|project| format!("Project: {}\nProject root: {}\n", project.name, project.path))
+        .unwrap_or_default();
     format!(
-        "Manual AgentDeck handoff\n\nSource agent: {}\nTarget provider: {}\nTarget model: {}\nTitle: {}\nTask:\n{}\n\nContext:\n{}\n\nReturn a concise implementation or review result with concrete next steps.",
+        "Manual AgentDeck handoff\n\n{}Source agent: {}\nTarget provider: {}\nTarget model: {}\nTitle: {}\nTask:\n{}\n\nContext:\n{}\n\nKeep workspace actions scoped to the project root. Return a concise implementation or review result with concrete next steps.",
+        project_context,
         request.source_agent_name,
         request.target_provider_name,
         request.target_model_id,
@@ -295,8 +312,10 @@ fn build_handoff_prompt(request: &HandoffRequest) -> String {
 
 fn thread_identifier(request: &HandoffRequest) -> String {
     format!(
-        "handoff:{}:{}",
-        request.source_agent_id, request.target_provider_id
+        "handoff:{}:{}:{}",
+        request.project_id.as_deref().unwrap_or("global"),
+        request.source_agent_id,
+        request.target_provider_id
     )
 }
 
@@ -316,6 +335,7 @@ mod tests {
 
     fn valid_request() -> HandoffRequest {
         HandoffRequest {
+            project_id: None,
             source_agent_id: "agent:codex".to_owned(),
             source_agent_name: "Codex".to_owned(),
             target_provider_id: "lm-studio".to_owned(),
@@ -357,6 +377,19 @@ mod tests {
     #[test]
     fn builds_thread_identifier_from_source_and_target() {
         let request = valid_request();
-        assert_eq!(thread_identifier(&request), "handoff:agent:codex:lm-studio");
+        assert_eq!(
+            thread_identifier(&request),
+            "handoff:global:agent:codex:lm-studio"
+        );
+    }
+
+    #[test]
+    fn includes_project_in_thread_identifier() {
+        let mut request = valid_request();
+        request.project_id = Some("project:agentdeck".to_owned());
+        assert_eq!(
+            thread_identifier(&request),
+            "handoff:project:agentdeck:agent:codex:lm-studio"
+        );
     }
 }

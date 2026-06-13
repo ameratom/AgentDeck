@@ -13,7 +13,9 @@ import type {
   ProviderCredentialRequest,
   McpInventory,
   McpToggleResult,
+  ProjectConnectorSettings,
   GrokMcpBridgeStatus,
+  SecureTunnelStatus,
   RouterRuleMatrix,
   HandoffRouteSuggestion,
   AgentPermissionMatrix,
@@ -28,6 +30,7 @@ import type {
   LocalExportResult,
   AuditEventsPage,
   LegacyCredentialImportResult,
+  ProjectWorkspaceList,
 } from "./types";
 
 export function runPreflight(): Promise<PreflightResult> {
@@ -35,7 +38,7 @@ export function runPreflight(): Promise<PreflightResult> {
 }
 
 export function scanEnvironment(): Promise<EnvironmentScan> {
-  return invoke<EnvironmentScan>("scan_environment");
+  return invoke<EnvironmentScan>("scan_project_environment");
 }
 
 export function listLmStudioModels(): Promise<LocalModel[]> {
@@ -113,12 +116,64 @@ export function toggleMcpServer(
   });
 }
 
+export function loadProjectConnectorSettings(): Promise<ProjectConnectorSettings> {
+  return invoke<ProjectConnectorSettings>("load_project_connector_settings");
+}
+
+export function saveProjectConnectorSettings(request: {
+  filesystemEnabled: boolean;
+  gitEnabled: boolean;
+}): Promise<ProjectConnectorSettings> {
+  return invoke<ProjectConnectorSettings>("save_project_connector_settings", {
+    request,
+  });
+}
+
 export function syncGrokMcpBridge(): Promise<GrokMcpBridgeStatus> {
   return invoke<GrokMcpBridgeStatus>("sync_grok_mcp_bridge");
 }
 
 export function grokMcpBridgeStatus(): Promise<GrokMcpBridgeStatus> {
   return invoke<GrokMcpBridgeStatus>("grok_mcp_bridge_status");
+}
+
+export function secureTunnelStatus(): Promise<SecureTunnelStatus> {
+  return invoke<SecureTunnelStatus>("secure_tunnel_status");
+}
+
+export function startSecureTunnel(): Promise<SecureTunnelStatus> {
+  return invoke<SecureTunnelStatus>("start_secure_tunnel");
+}
+
+export function stopSecureTunnel(): Promise<SecureTunnelStatus> {
+  return invoke<SecureTunnelStatus>("stop_secure_tunnel");
+}
+
+export function openSecureTunnelUi(): Promise<SecureTunnelStatus> {
+  return invoke<SecureTunnelStatus>("open_secure_tunnel_ui");
+}
+
+export function listProjects(): Promise<ProjectWorkspaceList> {
+  return invoke<ProjectWorkspaceList>("list_projects");
+}
+
+export function registerProject(request: {
+  path: string;
+  name?: string | null;
+}): Promise<ProjectWorkspaceList> {
+  return invoke<ProjectWorkspaceList>("register_project", { request });
+}
+
+export function setActiveProject(
+  projectId: string,
+): Promise<ProjectWorkspaceList> {
+  return invoke<ProjectWorkspaceList>("set_active_project", { projectId });
+}
+
+export function removeProject(
+  projectId: string,
+): Promise<ProjectWorkspaceList> {
+  return invoke<ProjectWorkspaceList>("remove_project", { projectId });
 }
 
 export function loadRouterRules(): Promise<RouterRuleMatrix> {
@@ -210,4 +265,3 @@ export function loadAuditEvents(
 ): Promise<AuditEventsPage> {
   return invoke<AuditEventsPage>("load_audit_events", { limit, offset, filter });
 }
-

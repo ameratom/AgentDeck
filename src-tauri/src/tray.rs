@@ -99,7 +99,7 @@ pub fn setup(app: &AppHandle) -> Result<(), String> {
         *guard = Some(TrayState { tray, run_items });
     }
 
-    refresh_from_scan(app, &commands::scan_environment())?;
+    refresh_from_scan(app, &commands::scan_environment_for_app(app))?;
     Ok(())
 }
 
@@ -222,6 +222,7 @@ mod tests {
     fn classifies_agent_health_for_tray() {
         let all_healthy = EnvironmentScan {
             scanned_at: "now".to_owned(),
+            project: None,
             tools: vec![],
             providers: vec![],
             processes: vec![],

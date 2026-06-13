@@ -74,6 +74,7 @@ pub async fn stream_chat_message(
 ) -> Result<ChatResponse, String> {
     validate_chat_request(&request)?;
     let database_path = database_path(&app)?;
+    let contextual_messages = project_scoped_messages(&database_path, &request)?;
     let cancelled = Arc::new(AtomicBool::new(false));
     {
         let mut guard = CHAT_CANCEL_FLAG
@@ -99,7 +100,7 @@ pub async fn stream_chat_message(
     let stream_result = chat_providers::stream_provider_chat(
         &definition,
         &request.model,
-        &request.messages,
+        &contextual_messages,
         request.enable_agent_tools,
         &on_event,
         cancelled.clone(),
@@ -167,8 +168,9 @@ pub async fn load_chat_messages(
 fn send_chat_blocking(database_path: PathBuf, request: ChatRequest) -> Result<ChatResponse, String> {
     let started_at = Utc::now();
     let definition = providers::find_provider(&request.provider_id)?;
+    let messages = project_scoped_messages(&database_path, &request)?;
     let completion_result =
-        chat_providers::complete_provider_chat(&definition, &request.model, &request.messages);
+        chat_providers::complete_provider_chat(&definition, &request.model, &messages);
 
     match completion_result {
         Ok((content, finish_reason)) => {
@@ -196,6 +198,27 @@ fn send_chat_blocking(database_path: PathBuf, request: ChatRequest) -> Result<Ch
             Err(error)
         }
     }
+}
+
+fn project_scoped_messages(
+    database_path: &Path,
+    request: &ChatRequest,
+) -> Result<Vec<crate::models::ChatMessageInput>, String> {
+    let Some(project_id) = request.project_id.as_deref() else {
+        return Ok(request.messages.clone());
+    };
+    let connection = open_database(database_path)?;
+    let project = storage::require_active_project(&connection, project_id)?;
+    let mut messages = Vec::with_capacity(request.messages.len() + 1);
+    messages.push(crate::models::ChatMessageInput {
+        role: "system".to_owned(),
+        content: format!(
+            "Active AgentDeck project: {}. Project root: {}. Keep file references and workspace actions scoped to this project unless the user explicitly asks otherwise.",
+            project.name, project.path
+        ),
+    });
+    messages.extend(request.messages.clone());
+    Ok(messages)
 }
 
 fn persist_chat_exchange(
@@ -352,6 +375,9 @@ fn store_audit_event(
 
 fn validate_chat_request(request: &ChatRequest) -> Result<(), String> {
     storage::validate_identifier("conversation ID", &request.conversation_id)?;
+    if let Some(project_id) = &request.project_id {
+        storage::validate_identifier("project ID", project_id)?;
+    }
     storage::validate_identifier("provider ID", &request.provider_id)?;
     storage::validate_identifier("model", &request.model)?;
     providers::find_provider(&request.provider_id)?;
@@ -390,6 +416,7 @@ mod tests {
     fn valid_request() -> ChatRequest {
         ChatRequest {
             conversation_id: "conversation:test".to_owned(),
+            project_id: None,
             provider_id: "lm-studio".to_owned(),
             model: "local-model".to_owned(),
             messages: vec![ChatMessageInput {
@@ -410,6 +437,36 @@ mod tests {
         let mut request = valid_request();
         request.messages[0].role = "tool".to_owned();
         assert!(validate_chat_request(&request).is_err());
+    }
+
+    #[test]
+    fn adds_verified_active_project_context() {
+        let directory = std::env::temp_dir().join(format!(
+            "agentdeck-chat-project-{}",
+            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let database_path = directory.join("agentdeck.sqlite3");
+        let connection = storage::open_database(&database_path).unwrap();
+        connection
+            .execute(
+                "INSERT INTO project_workspaces
+                    (id, name, path, active, created_at, updated_at)
+                 VALUES (?1, 'Chat Project', ?2, 1, 'now', 'now')",
+                params!["project:chat", directory.to_string_lossy()],
+            )
+            .unwrap();
+
+        let mut request = valid_request();
+        request.project_id = Some("project:chat".to_owned());
+        let messages = project_scoped_messages(&database_path, &request).unwrap();
+        assert_eq!(messages[0].role, "system");
+        assert!(messages[0].content.contains("Chat Project"));
+
+        request.project_id = Some("project:stale".to_owned());
+        assert!(project_scoped_messages(&database_path, &request).is_err());
+        drop(connection);
+        let _ = std::fs::remove_dir_all(directory);
     }
 
     #[test]

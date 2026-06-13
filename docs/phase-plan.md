@@ -131,3 +131,17 @@ Tasks:
 - [x] Router suggestions in Handoffs view
 - [x] v0.1.2 signed + notarized release
 - [x] ChatGPT submission package (`chatgpt-app-submission.json`, tunnel scripts, validator)
+
+## Phase 11
+
+Project workspaces and release hardening.
+
+Tasks:
+
+- [x] Local project registry with deterministic path-based IDs
+- [x] Active project selection and safe removal
+- [x] Audited project mutations and redacted local-data exports
+- [x] Projects UI with explicit global-scan boundary
+- [x] Scope project config discovery, graph context, chat, and handoffs to the active project
+- [x] Add per-project MCP and connector settings with validated export profiles
+- [x] Complete the v0.1.3 release checklist and notarized build

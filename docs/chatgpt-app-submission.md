@@ -4,7 +4,7 @@ AgentDeck exposes a local MCP server for ChatGPT via [Secure MCP Tunnel](https:/
 
 Submission import file: [`chatgpt-app-submission.json`](../chatgpt-app-submission.json)
 
-## Submission profile (v0.1.2)
+## Submission profile (v0.1.3)
 
 This submission includes **read-only** MCP tools only:
 
@@ -49,15 +49,22 @@ curl -s -X POST http://127.0.0.1:7823/mcp \
 AgentDeck listens on loopback only. ChatGPT cannot call `http://127.0.0.1` directly; use OpenAI's tunnel client inside your network.
 
 1. Create a tunnel in [Platform tunnel settings](https://platform.openai.com/settings/organization/tunnels).
-2. Copy `scripts/chatgpt-mcp-tunnel.example.env` → `scripts/chatgpt-mcp-tunnel.local.env` and fill in values.
+2. Copy `scripts/chatgpt-mcp-tunnel.example.env` to `~/Library/Application Support/com.agentdeck.desktop/chatgpt-mcp-tunnel.env`, set its permissions to `600`, and fill in the values. If the Apps dashboard provides a domain verification token, set `OPENAI_APPS_CHALLENGE_TOKEN` there before restarting AgentDeck.
 3. With AgentDeck running:
 
 ```bash
-source scripts/chatgpt-mcp-tunnel.local.env
 ./scripts/run-chatgpt-mcp-tunnel.sh
 ```
 
-4. Register the OpenAI-hosted tunnel URL in ChatGPT connector settings (not the localhost URL).
+4. Open the **Operator UI** in your browser to see the public HTTPS URL:
+
+   ```text
+   http://127.0.0.1:8081/ui
+   ```
+
+   Look for the section that shows the public tunnel endpoint (it will start with `https://` and contain your tunnel ID). This is the **MCP Server URL** you must paste into the OpenAI Apps dashboard.
+
+5. Register the OpenAI-hosted tunnel URL in ChatGPT connector settings (not the localhost URL).
 
 See [Connect from ChatGPT](https://developers.openai.com/apps-sdk/deploy/connect-chatgpt) and [Submit your app](https://developers.openai.com/apps-sdk/deploy/submission).
 
