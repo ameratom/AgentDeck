@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { EnvironmentScan, ProviderAdapterStatus } from "../../lib/types";
 import {
+  buildConnectorExportRequest,
   buildOnboardingHandoffRequest,
+  buildProjectRegistration,
+  connectorExportSummary,
   grokCredentialReady,
   nextOnboardingStep,
   selectTestHandoffTarget,
+  suggestConnectorDefaults,
   summarizeInventory,
 } from "./onboardingModel";
 
@@ -13,7 +17,7 @@ const baseScan: EnvironmentScan = {
   project: null,
   tools: [
     { name: "codex", available: true, version: "1.0", path: "/usr/bin/codex", error: null },
-    { name: "claude", available: false, version: null, path: null, error: "missing" },
+    { name: "claude", available: true, version: "1.0", path: "/usr/bin/claude", error: null },
   ],
   providers: [],
   processes: [],
@@ -77,7 +81,10 @@ function provider(
 describe("onboarding model", () => {
   it("advances through the onboarding step order", () => {
     expect(nextOnboardingStep("scan")).toBe("inventory");
-    expect(nextOnboardingStep("test-handoff")).toBe("done");
+    expect(nextOnboardingStep("inventory")).toBe("project");
+    expect(nextOnboardingStep("project")).toBe("grok-key");
+    expect(nextOnboardingStep("test-handoff")).toBe("connectors");
+    expect(nextOnboardingStep("connectors")).toBe("done");
     expect(nextOnboardingStep("done")).toBeNull();
   });
 
@@ -86,10 +93,47 @@ describe("onboarding model", () => {
 
     expect(summary.agentCount).toBe(2);
     expect(summary.runningAgents).toBe(1);
-    expect(summary.availableTools).toBe(1);
+    expect(summary.availableTools).toBe(2);
     expect(summary.validMcpConfigs).toBe(1);
     expect(summary.highlights.length).toBeGreaterThan(0);
-    expect(summary.gaps).not.toContain("No local agents discovered yet");
+    expect(summary.gaps).toContain("No project workspace registered yet");
+  });
+
+  it("suggests Claude Code serve when the Claude CLI is available", () => {
+    expect(suggestConnectorDefaults(baseScan).claudeCodeServeEnabled).toBe(true);
+  });
+
+  it("builds connector export requests from onboarding defaults", () => {
+    const request = buildConnectorExportRequest({
+      filesystemEnabled: true,
+      gitEnabled: false,
+      claudeCodeServeEnabled: true,
+    });
+    expect(request.claudeCodeServeEnabled).toBe(true);
+  });
+
+  it("summarizes exported connector profiles", () => {
+    const summary = connectorExportSummary({
+      projectId: "project:test",
+      projectName: "Test",
+      projectPath: "/tmp/test",
+      filesystemEnabled: true,
+      gitEnabled: false,
+      claudeCodeServeEnabled: true,
+      claudeExportPath: "/tmp/claude.mcp.json",
+      codexExportPath: "/tmp/codex.mcp.toml",
+      claudeCodeServeExportPath: "/tmp/claude-code-serve.mcp.json",
+      updatedAt: "now",
+    });
+    expect(summary).toContain("Claude Code MCP serve");
+    expect(summary).toContain("AgentDeck HTTP MCP");
+  });
+
+  it("builds project registration payloads", () => {
+    expect(buildProjectRegistration("/tmp/demo/", "Demo App")).toEqual({
+      path: "/tmp/demo",
+      name: "Demo App",
+    });
   });
 
   it("detects when Grok credentials are ready", () => {

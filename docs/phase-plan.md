@@ -145,3 +145,14 @@ Tasks:
 - [x] Scope project config discovery, graph context, chat, and handoffs to the active project
 - [x] Add per-project MCP and connector settings with validated export profiles
 - [x] Complete the v0.1.3 release checklist and notarized build
+
+## Phase 12
+
+Project-aware onboarding and Claude Code MCP serve export.
+
+Tasks:
+
+- [x] Register a project workspace during first-run onboarding
+- [x] Export project MCP connector profile during onboarding (AgentDeck HTTP, filesystem, git, Claude Code serve)
+- [x] Include `claude mcp serve` in per-project Claude/Codex connector exports
+- [x] Always include AgentDeck HTTP MCP in connector export profiles

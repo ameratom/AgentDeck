@@ -2,7 +2,9 @@ import type {
   DiscoveredEntity,
   EnvironmentScan,
   HandoffRequest,
+  ProjectConnectorSettings,
   ProviderAdapterStatus,
+  ToolStatus,
 } from "../../lib/types";
 import { filterAgents } from "../agents/agentModel";
 import {
@@ -10,19 +12,24 @@ import {
   buildHandoffRequest,
   selectDefaultModel,
 } from "../handoffs/handoffModel";
+import { defaultProjectName, normalizeProjectPath } from "../projects/projectModel";
 
 export type OnboardingStepId =
   | "scan"
   | "inventory"
+  | "project"
   | "grok-key"
   | "test-handoff"
+  | "connectors"
   | "done";
 
 export const ONBOARDING_STEP_ORDER: OnboardingStepId[] = [
   "scan",
   "inventory",
+  "project",
   "grok-key",
   "test-handoff",
+  "connectors",
   "done",
 ];
 
@@ -38,6 +45,12 @@ export interface InventorySummary {
   gaps: string[];
 }
 
+export interface ConnectorExportDefaults {
+  filesystemEnabled: boolean;
+  gitEnabled: boolean;
+  claudeCodeServeEnabled: boolean;
+}
+
 export function stepIndex(step: OnboardingStepId): number {
   return ONBOARDING_STEP_ORDER.indexOf(step);
 }
@@ -48,10 +61,14 @@ export function stepLabel(step: OnboardingStepId): string {
       return "Environment scan";
     case "inventory":
       return "Local inventory";
+    case "project":
+      return "Project workspace";
     case "grok-key":
       return "Grok API key";
     case "test-handoff":
       return "Test handoff";
+    case "connectors":
+      return "MCP exports";
     case "done":
       return "Ready";
   }
@@ -80,6 +97,12 @@ export function summarizeInventory(scan: EnvironmentScan): InventorySummary {
 
   const highlights: string[] = [];
   const gaps: string[] = [];
+
+  if (scan.project) {
+    highlights.push(`Active project: ${scan.project.name}`);
+  } else {
+    gaps.push("No project workspace registered yet");
+  }
 
   if (runningAgents > 0) {
     highlights.push(`${runningAgents} agent${runningAgents === 1 ? "" : "s"} running now`);
@@ -115,6 +138,66 @@ export function summarizeInventory(scan: EnvironmentScan): InventorySummary {
     validMcpConfigs,
     highlights,
     gaps,
+  };
+}
+
+export function toolAvailable(tools: ToolStatus[], name: string): boolean {
+  return tools.some(
+    (tool) => tool.name.toLowerCase() === name.toLowerCase() && tool.available,
+  );
+}
+
+export function suggestConnectorDefaults(scan: EnvironmentScan): ConnectorExportDefaults {
+  return {
+    filesystemEnabled: true,
+    gitEnabled: false,
+    claudeCodeServeEnabled: toolAvailable(scan.tools, "claude"),
+  };
+}
+
+export function buildConnectorExportRequest(
+  settings: ConnectorExportDefaults,
+): Pick<
+  ProjectConnectorSettings,
+  "filesystemEnabled" | "gitEnabled" | "claudeCodeServeEnabled"
+> {
+  return {
+    filesystemEnabled: settings.filesystemEnabled,
+    gitEnabled: settings.gitEnabled,
+    claudeCodeServeEnabled: settings.claudeCodeServeEnabled,
+  };
+}
+
+export function connectorExportSummary(settings: ProjectConnectorSettings): string[] {
+  const enabled: string[] = ["AgentDeck HTTP MCP"];
+  if (settings.filesystemEnabled) {
+    enabled.push("Filesystem MCP");
+  }
+  if (settings.gitEnabled) {
+    enabled.push("Git MCP");
+  }
+  if (settings.claudeCodeServeEnabled) {
+    enabled.push("Claude Code MCP serve");
+  }
+  return enabled;
+}
+
+export function suggestedProjectPath(scan: EnvironmentScan | null): string {
+  if (scan?.project?.path) {
+    return scan.project.path;
+  }
+  return "";
+}
+
+export function buildProjectRegistration(path: string, name: string): {
+  path: string;
+  name: string | null;
+} {
+  const normalized = normalizeProjectPath(path);
+  const trimmedName = name.trim();
+  return {
+    path: normalized,
+    name: trimmedName || defaultProjectName(normalized) || null,
   };
 }
 

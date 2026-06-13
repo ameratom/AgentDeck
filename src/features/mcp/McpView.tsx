@@ -136,6 +136,7 @@ export function McpView() {
       const nextSettings = await saveProjectConnectorSettings({
         filesystemEnabled: projectConnectors.filesystemEnabled,
         gitEnabled: projectConnectors.gitEnabled,
+        claudeCodeServeEnabled: projectConnectors.claudeCodeServeEnabled,
       });
       const nextInventory = await scanMcpInventory();
       setProjectConnectors(nextSettings);
@@ -345,10 +346,40 @@ export function McpView() {
                 <small>Read-oriented status, log, branch, and diff tools.</small>
               </span>
             </label>
+            <label>
+              <input
+                checked={projectConnectors.claudeCodeServeEnabled}
+                disabled={savingProjectConnectors}
+                onChange={(event) =>
+                  setProjectConnectors((current) =>
+                    current
+                      ? {
+                          ...current,
+                          claudeCodeServeEnabled: event.target.checked,
+                        }
+                      : current,
+                  )
+                }
+                type="checkbox"
+              />
+              <span>
+                <strong>Claude Code MCP serve</strong>
+                <small>
+                  Export <code>claude mcp serve</code> for Codex and other MCP
+                  clients.
+                </small>
+              </span>
+            </label>
           </div>
           <dl>
             <Detail label="Claude export" value={projectConnectors.claudeExportPath} />
             <Detail label="Codex export" value={projectConnectors.codexExportPath} />
+            {projectConnectors.claudeCodeServeEnabled ? (
+              <Detail
+                label="Claude Code serve"
+                value={projectConnectors.claudeCodeServeExportPath}
+              />
+            ) : null}
           </dl>
           <button
             disabled={savingProjectConnectors}

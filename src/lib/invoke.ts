@@ -123,6 +123,7 @@ export function loadProjectConnectorSettings(): Promise<ProjectConnectorSettings
 export function saveProjectConnectorSettings(request: {
   filesystemEnabled: boolean;
   gitEnabled: boolean;
+  claudeCodeServeEnabled: boolean;
 }): Promise<ProjectConnectorSettings> {
   return invoke<ProjectConnectorSettings>("save_project_connector_settings", {
     request,

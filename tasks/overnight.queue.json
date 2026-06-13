@@ -1,0 +1,13 @@
+[
+  {
+    "id": "task-001",
+    "title": "Document overnight autonomy workflow in HERMES.md",
+    "scope": "ALLOW",
+    "files_hint": ["HERMES.md", "docs/autonomy-policy.md"],
+    "acceptance": [
+      "pnpm verify passes",
+      "HERMES.md describes queue format and stop conditions"
+    ],
+    "deferred_if": "requires live Cursor Agent auth for patch generation"
+  }
+]

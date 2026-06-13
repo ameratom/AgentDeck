@@ -78,12 +78,13 @@ pub async fn save_project_connector_settings(
         connection
             .execute(
                 "INSERT INTO project_connector_settings
-                    (project_id, filesystem_enabled, git_enabled, claude_export_path,
-                     codex_export_path, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                    (project_id, filesystem_enabled, git_enabled, claude_code_serve_enabled,
+                     claude_export_path, codex_export_path, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                  ON CONFLICT(project_id) DO UPDATE SET
                     filesystem_enabled = excluded.filesystem_enabled,
                     git_enabled = excluded.git_enabled,
+                    claude_code_serve_enabled = excluded.claude_code_serve_enabled,
                     claude_export_path = excluded.claude_export_path,
                     codex_export_path = excluded.codex_export_path,
                     updated_at = excluded.updated_at",
@@ -91,6 +92,7 @@ pub async fn save_project_connector_settings(
                     settings.project_id,
                     if settings.filesystem_enabled { 1_i64 } else { 0_i64 },
                     if settings.git_enabled { 1_i64 } else { 0_i64 },
+                    if settings.claude_code_serve_enabled { 1_i64 } else { 0_i64 },
                     settings.claude_export_path,
                     settings.codex_export_path,
                     settings.updated_at,
@@ -105,6 +107,7 @@ pub async fn save_project_connector_settings(
                 "projectId": settings.project_id,
                 "filesystemEnabled": settings.filesystem_enabled,
                 "gitEnabled": settings.git_enabled,
+                "claudeCodeServeEnabled": settings.claude_code_serve_enabled,
             }),
         );
         Ok(settings)
@@ -669,12 +672,17 @@ fn default_connector_settings(
         project_path: project.path.clone(),
         filesystem_enabled: project_config_declares_server(&project_config, "filesystem"),
         git_enabled: project_config_declares_server(&project_config, "git"),
+        claude_code_serve_enabled: project_config_declares_server(&project_config, "claude-code"),
         claude_export_path: export_directory
             .join("claude.mcp.json")
             .to_string_lossy()
             .into_owned(),
         codex_export_path: export_directory
             .join("codex.mcp.toml")
+            .to_string_lossy()
+            .into_owned(),
+        claude_code_serve_export_path: export_directory
+            .join("claude-code-serve.mcp.json")
             .to_string_lossy()
             .into_owned(),
         updated_at: Utc::now().to_rfc3339(),
@@ -700,6 +708,7 @@ fn write_connector_exports(
     let mut settings = default_connector_settings(database_path, project);
     settings.filesystem_enabled = request.filesystem_enabled;
     settings.git_enabled = request.git_enabled;
+    settings.claude_code_serve_enabled = request.claude_code_serve_enabled;
     settings.updated_at = Utc::now().to_rfc3339();
 
     let launcher_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -709,6 +718,13 @@ fn write_connector_exports(
     let filesystem_launcher = launcher_root.join("scripts/filesystem-mcp-launcher.sh");
     let git_launcher = launcher_root.join("scripts/git-mcp-launcher.sh");
     let mut claude_servers = Map::new();
+    claude_servers.insert(
+        "agentdeck".to_owned(),
+        json!({
+            "type": "http",
+            "url": "http://127.0.0.1:7823/mcp"
+        }),
+    );
     if request.filesystem_enabled {
         claude_servers.insert(
             "filesystem".to_owned(),
@@ -721,6 +737,9 @@ fn write_connector_exports(
             connector_json(&git_launcher, &project.path),
         );
     }
+    if request.claude_code_serve_enabled {
+        claude_servers.insert("claude-code".to_owned(), claude_code_serve_json());
+    }
     let claude = json!({ "mcpServers": claude_servers });
     let claude_payload = serde_json::to_vec_pretty(&claude)
         .map_err(|error| format!("failed to encode Claude connector export: {error}"))?;
@@ -728,16 +747,26 @@ fn write_connector_exports(
         .map_err(|error| format!("Claude connector export failed validation: {error}"))?;
 
     let mut codex_servers = std::collections::BTreeMap::new();
+    codex_servers.insert(
+        "agentdeck".to_owned(),
+        CodexConnectorDefinition::http("http://127.0.0.1:7823/mcp"),
+    );
     if request.filesystem_enabled {
         codex_servers.insert(
             "filesystem".to_owned(),
-            CodexConnectorDefinition::new(&filesystem_launcher, &project.path),
+            CodexConnectorDefinition::stdio(&filesystem_launcher, &project.path),
         );
     }
     if request.git_enabled {
         codex_servers.insert(
             "git".to_owned(),
-            CodexConnectorDefinition::new(&git_launcher, &project.path),
+            CodexConnectorDefinition::stdio(&git_launcher, &project.path),
+        );
+    }
+    if request.claude_code_serve_enabled {
+        codex_servers.insert(
+            "claude-code".to_owned(),
+            CodexConnectorDefinition::claude_code_serve(),
         );
     }
     let codex_payload = toml::to_string_pretty(&CodexConnectorExport {
@@ -750,10 +779,23 @@ fn write_connector_exports(
     let export_directory = connector_export_directory(database_path, &project.id);
     fs::create_dir_all(&export_directory)
         .map_err(|error| format!("failed to create connector export directory: {error}"))?;
-    fs::write(&settings.claude_export_path, claude_payload)
+    fs::write(&settings.claude_export_path, &claude_payload)
         .map_err(|error| format!("failed to write Claude connector export: {error}"))?;
     fs::write(&settings.codex_export_path, codex_payload)
         .map_err(|error| format!("failed to write Codex connector export: {error}"))?;
+    if request.claude_code_serve_enabled {
+        let serve_payload = serde_json::to_vec_pretty(&json!({
+            "mcpServers": {
+                "claude-code": claude_code_serve_json()
+            }
+        }))
+        .map_err(|error| format!("failed to encode Claude Code serve export: {error}"))?;
+        fs::write(&settings.claude_code_serve_export_path, serve_payload).map_err(|error| {
+            format!("failed to write Claude Code serve export: {error}")
+        })?;
+    } else if Path::new(&settings.claude_code_serve_export_path).is_file() {
+        let _ = fs::remove_file(&settings.claude_code_serve_export_path);
+    }
     Ok(settings)
 }
 
@@ -780,6 +822,13 @@ fn connector_json(launcher: &Path, project_path: &str) -> Value {
     })
 }
 
+fn claude_code_serve_json() -> Value {
+    json!({
+        "command": "claude",
+        "args": ["mcp", "serve"]
+    })
+}
+
 #[derive(Serialize)]
 struct CodexConnectorExport {
     mcp_servers: std::collections::BTreeMap<String, CodexConnectorDefinition>,
@@ -787,20 +836,44 @@ struct CodexConnectorExport {
 
 #[derive(Serialize)]
 struct CodexConnectorDefinition {
-    command: String,
-    args: Vec<String>,
-    env: std::collections::BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    args: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    env: Option<std::collections::BTreeMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    url: Option<String>,
 }
 
 impl CodexConnectorDefinition {
-    fn new(launcher: &Path, project_path: &str) -> Self {
+    fn stdio(launcher: &Path, project_path: &str) -> Self {
         Self {
-            command: launcher.to_string_lossy().into_owned(),
-            args: vec![project_path.to_owned()],
-            env: std::collections::BTreeMap::from([(
+            command: Some(launcher.to_string_lossy().into_owned()),
+            args: Some(vec![project_path.to_owned()]),
+            env: Some(std::collections::BTreeMap::from([(
                 "AGENTDECK_PROJECT_ROOT".to_owned(),
                 project_path.to_owned(),
-            )]),
+            )])),
+            url: None,
+        }
+    }
+
+    fn http(url: &str) -> Self {
+        Self {
+            command: None,
+            args: None,
+            env: None,
+            url: Some(url.to_owned()),
+        }
+    }
+
+    fn claude_code_serve() -> Self {
+        Self {
+            command: Some("claude".to_owned()),
+            args: Some(vec!["mcp".to_owned(), "serve".to_owned()]),
+            env: None,
+            url: None,
         }
     }
 }
@@ -922,6 +995,7 @@ mod tests {
             &SaveProjectConnectorSettingsRequest {
                 filesystem_enabled: true,
                 git_enabled: true,
+                claude_code_serve_enabled: true,
             },
         )
         .unwrap();
@@ -930,10 +1004,15 @@ mod tests {
             serde_json::from_str(&fs::read_to_string(&settings.claude_export_path).unwrap())
                 .unwrap();
         assert_eq!(
+            claude["mcpServers"]["agentdeck"]["url"],
+            "http://127.0.0.1:7823/mcp"
+        );
+        assert_eq!(
             claude["mcpServers"]["filesystem"]["args"][0],
             project.path
         );
         assert_eq!(claude["mcpServers"]["git"]["args"][0], project.path);
+        assert_eq!(claude["mcpServers"]["claude-code"]["command"], "claude");
 
         let codex: toml::Value =
             toml::from_str(&fs::read_to_string(&settings.codex_export_path).unwrap()).unwrap();
@@ -945,6 +1024,11 @@ mod tests {
             codex["mcp_servers"]["git"]["args"][0].as_str(),
             Some(project.path.as_str())
         );
+        assert_eq!(
+            codex["mcp_servers"]["agentdeck"]["url"].as_str(),
+            Some("http://127.0.0.1:7823/mcp")
+        );
+        assert!(Path::new(&settings.claude_code_serve_export_path).is_file());
         let _ = fs::remove_dir_all(directory);
     }
 
@@ -970,6 +1054,7 @@ mod tests {
             &SaveProjectConnectorSettingsRequest {
                 filesystem_enabled: true,
                 git_enabled: true,
+                claude_code_serve_enabled: false,
             },
         );
         assert!(result.is_err());

@@ -218,8 +218,10 @@ export interface ProjectConnectorSettings {
   projectPath: string;
   filesystemEnabled: boolean;
   gitEnabled: boolean;
+  claudeCodeServeEnabled: boolean;
   claudeExportPath: string;
   codexExportPath: string;
+  claudeCodeServeExportPath: string;
   updatedAt: string;
 }
 

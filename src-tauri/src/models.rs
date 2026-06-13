@@ -416,8 +416,10 @@ pub struct ProjectConnectorSettings {
     pub project_path: String,
     pub filesystem_enabled: bool,
     pub git_enabled: bool,
+    pub claude_code_serve_enabled: bool,
     pub claude_export_path: String,
     pub codex_export_path: String,
+    pub claude_code_serve_export_path: String,
     pub updated_at: String,
 }
 
@@ -426,6 +428,7 @@ pub struct ProjectConnectorSettings {
 pub struct SaveProjectConnectorSettingsRequest {
     pub filesystem_enabled: bool,
     pub git_enabled: bool,
+    pub claude_code_serve_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

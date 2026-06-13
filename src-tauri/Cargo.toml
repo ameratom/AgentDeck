@@ -9,6 +9,10 @@ edition = "2021"
 name = "agentdeck_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[[bin]]
+name = "hermes"
+path = "src/bin/hermes.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

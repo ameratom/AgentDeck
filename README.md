@@ -32,6 +32,7 @@ Artifacts:
 
 ## Docs
 
+- [Overnight autonomy (Hermes)](HERMES.md)
 - [MCP server](docs/agentdeck-mcp-server.md)
 - [MCP connectors](docs/mcp-connectors.md)
 - [ChatGPT app submission](docs/chatgpt-app-submission.md)

@@ -3,15 +3,29 @@ import {
   checkProviderAdapter,
   completeOnboarding,
   listProviderAdapters,
+  loadProjectConnectorSettings,
+  registerProject,
   runHandoff,
+  saveProjectConnectorSettings,
   saveProviderApiKey,
   scanEnvironment,
 } from "../../lib/invoke";
-import type { EnvironmentScan, HandoffRun, ProviderAdapterStatus } from "../../lib/types";
+import type {
+  EnvironmentScan,
+  HandoffRun,
+  ProjectConnectorSettings,
+  ProviderAdapterStatus,
+} from "../../lib/types";
 import { filterAgents } from "../agents/agentModel";
 import { recentOutput } from "../handoffs/handoffModel";
 import {
+  validateProjectPath,
+} from "../projects/projectModel";
+import {
+  buildConnectorExportRequest,
   buildOnboardingHandoffRequest,
+  buildProjectRegistration,
+  connectorExportSummary,
   grokCredentialReady,
   nextOnboardingStep,
   ONBOARDING_STEP_ORDER,
@@ -19,7 +33,10 @@ import {
   selectTestHandoffTarget,
   stepIndex,
   stepLabel,
+  suggestConnectorDefaults,
+  suggestedProjectPath,
   summarizeInventory,
+  type ConnectorExportDefaults,
   type OnboardingStepId,
 } from "./onboardingModel";
 
@@ -34,6 +51,13 @@ export function OnboardingView({ initialScan, onComplete }: OnboardingViewProps)
   const [providers, setProviders] = useState<ProviderAdapterStatus[]>([]);
   const [grokKey, setGrokKey] = useState("");
   const [handoffRun, setHandoffRun] = useState<HandoffRun | null>(null);
+  const [projectPath, setProjectPath] = useState("");
+  const [projectName, setProjectName] = useState("");
+  const [projectPathError, setProjectPathError] = useState<string | null>(null);
+  const [connectorDefaults, setConnectorDefaults] =
+    useState<ConnectorExportDefaults | null>(null);
+  const [exportedConnectors, setExportedConnectors] =
+    useState<ProjectConnectorSettings | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("Welcome to AgentDeck.");
 
@@ -51,10 +75,87 @@ export function OnboardingView({ initialScan, onComplete }: OnboardingViewProps)
     try {
       const nextScan = await scanEnvironment();
       setScan(nextScan);
+      setProjectPath(suggestedProjectPath(nextScan));
+      setConnectorDefaults(suggestConnectorDefaults(nextScan));
       setStatus("Environment scan completed.");
       setStep("inventory");
     } catch (error) {
       setStatus(`Scan failed: ${formatError(error)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function registerWorkspace(): Promise<void> {
+    const error = validateProjectPath(projectPath);
+    setProjectPathError(error);
+    if (error) {
+      return;
+    }
+
+    setBusy(true);
+    setStatus("Registering your project workspace...");
+    try {
+      const request = buildProjectRegistration(projectPath, projectName);
+      await registerProject(request);
+      const nextScan = await scanEnvironment();
+      setScan(nextScan);
+      setConnectorDefaults(suggestConnectorDefaults(nextScan));
+      setStatus(`Registered ${request.name ?? request.path} as the active project.`);
+      setStep("grok-key");
+      void refreshProviders();
+    } catch (registerError) {
+      setStatus(`Project registration failed: ${formatError(registerError)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function exportConnectors(): Promise<void> {
+    const defaults = connectorDefaults ?? {
+      filesystemEnabled: true,
+      gitEnabled: false,
+      claudeCodeServeEnabled: false,
+    };
+
+    setBusy(true);
+    setStatus("Exporting project MCP connector profile...");
+    try {
+      const settings = await saveProjectConnectorSettings(
+        buildConnectorExportRequest(defaults),
+      );
+      setExportedConnectors(settings);
+      setStatus(
+        `Exported ${connectorExportSummary(settings).join(", ")} for ${settings.projectName}.`,
+      );
+    } catch (error) {
+      setStatus(`Connector export failed: ${formatError(error)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function prepareConnectorStep(): Promise<void> {
+    setBusy(true);
+    setStatus("Loading project connector defaults...");
+    try {
+      const settings = await loadProjectConnectorSettings();
+      setConnectorDefaults({
+        filesystemEnabled: settings.filesystemEnabled,
+        gitEnabled: settings.gitEnabled,
+        claudeCodeServeEnabled: settings.claudeCodeServeEnabled,
+      });
+      setExportedConnectors(settings);
+      setStatus(`Ready to export connectors for ${settings.projectName}.`);
+      setStep("connectors");
+    } catch {
+      const activeScan = scan ?? (await scanEnvironment());
+      setScan(activeScan);
+      setConnectorDefaults(suggestConnectorDefaults(activeScan));
+      setStatus(
+        "Register a project workspace first, or skip connector export for now.",
+      );
+      setStep("connectors");
     } finally {
       setBusy(false);
     }
@@ -173,8 +274,9 @@ export function OnboardingView({ initialScan, onComplete }: OnboardingViewProps)
             <p className="eyebrow">First run</p>
             <h2>Set up AgentDeck</h2>
             <p>
-              Scan your machine, connect Grok, and confirm one safe handoff before
-              entering the control plane.
+              Scan your machine, register a project workspace, export MCP connectors,
+              connect Grok, and confirm one safe handoff before entering the control
+              plane.
             </p>
           </div>
           <span className="phase-badge">{progress}</span>
@@ -259,10 +361,7 @@ export function OnboardingView({ initialScan, onComplete }: OnboardingViewProps)
             <div className="onboarding-actions">
               <button
                 disabled={busy}
-                onClick={() => {
-                  setStep("grok-key");
-                  void refreshProviders();
-                }}
+                onClick={() => setStep("project")}
                 type="button"
               >
                 Continue
@@ -271,6 +370,58 @@ export function OnboardingView({ initialScan, onComplete }: OnboardingViewProps)
                 className="secondary-button"
                 disabled={busy}
                 onClick={skipStep}
+                type="button"
+              >
+                Skip
+              </button>
+            </div>
+          </section>
+        ) : null}
+
+        {step === "project" ? (
+          <section className="onboarding-card">
+            <h3>Register a project workspace</h3>
+            <p>
+              AgentDeck scopes discovery, chat, handoffs, and MCP exports to one
+              active project at a time. Register the repo you want to work in.
+            </p>
+            <label className="onboarding-field">
+              <span>Project folder path</span>
+              <input
+                disabled={busy}
+                onChange={(event) => {
+                  setProjectPath(event.target.value);
+                  setProjectPathError(null);
+                }}
+                placeholder="/Users/you/projects/my-app"
+                type="text"
+                value={projectPath}
+              />
+            </label>
+            {projectPathError ? (
+              <p className="onboarding-hint">{projectPathError}</p>
+            ) : null}
+            <label className="onboarding-field">
+              <span>Display name (optional)</span>
+              <input
+                disabled={busy}
+                onChange={(event) => setProjectName(event.target.value)}
+                placeholder="My App"
+                type="text"
+                value={projectName}
+              />
+            </label>
+            <div className="onboarding-actions">
+              <button disabled={busy} onClick={() => void registerWorkspace()} type="button">
+                {busy ? "Registering..." : "Register project"}
+              </button>
+              <button
+                className="secondary-button"
+                disabled={busy}
+                onClick={() => {
+                  setStep("grok-key");
+                  void refreshProviders();
+                }}
                 type="button"
               >
                 Skip
@@ -351,10 +502,102 @@ export function OnboardingView({ initialScan, onComplete }: OnboardingViewProps)
                 Skip
               </button>
               {handoffRun?.status === "completed" ? (
-                <button disabled={busy} onClick={advanceStep} type="button">
+                <button disabled={busy} onClick={() => void prepareConnectorStep()} type="button">
                   Continue
                 </button>
               ) : null}
+            </div>
+          </section>
+        ) : null}
+
+        {step === "connectors" && connectorDefaults ? (
+          <section className="onboarding-card">
+            <h3>Export project MCP connectors</h3>
+            <p>
+              Generate validated Claude JSON and Codex TOML snippets for AgentDeck,
+              optional filesystem/git launchers, and Claude Code MCP serve. AgentDeck
+              does not modify third-party configs automatically.
+            </p>
+            <div className="mcp-project-connector-options">
+              <label>
+                <input
+                  checked={connectorDefaults.filesystemEnabled}
+                  disabled={busy}
+                  onChange={(event) =>
+                    setConnectorDefaults((current) =>
+                      current
+                        ? { ...current, filesystemEnabled: event.target.checked }
+                        : current,
+                    )
+                  }
+                  type="checkbox"
+                />
+                <span>
+                  <strong>Filesystem MCP</strong>
+                  <small>Project-scoped read access.</small>
+                </span>
+              </label>
+              <label>
+                <input
+                  checked={connectorDefaults.gitEnabled}
+                  disabled={busy}
+                  onChange={(event) =>
+                    setConnectorDefaults((current) =>
+                      current
+                        ? { ...current, gitEnabled: event.target.checked }
+                        : current,
+                    )
+                  }
+                  type="checkbox"
+                />
+                <span>
+                  <strong>Git MCP</strong>
+                  <small>Requires a Git repository.</small>
+                </span>
+              </label>
+              <label>
+                <input
+                  checked={connectorDefaults.claudeCodeServeEnabled}
+                  disabled={busy}
+                  onChange={(event) =>
+                    setConnectorDefaults((current) =>
+                      current
+                        ? {
+                            ...current,
+                            claudeCodeServeEnabled: event.target.checked,
+                          }
+                        : current,
+                    )
+                  }
+                  type="checkbox"
+                />
+                <span>
+                  <strong>Claude Code MCP serve</strong>
+                  <small>Expose Claude Code to other MCP clients.</small>
+                </span>
+              </label>
+            </div>
+            {exportedConnectors ? (
+              <ul className="onboarding-list">
+                {connectorExportSummary(exportedConnectors).map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+                <li>Claude: {exportedConnectors.claudeExportPath}</li>
+                <li>Codex: {exportedConnectors.codexExportPath}</li>
+              </ul>
+            ) : null}
+            <div className="onboarding-actions">
+              <button disabled={busy} onClick={() => void exportConnectors()} type="button">
+                {busy ? "Exporting..." : exportedConnectors ? "Re-export" : "Export profile"}
+              </button>
+              <button
+                className="secondary-button"
+                disabled={busy}
+                onClick={advanceStep}
+                type="button"
+              >
+                {exportedConnectors ? "Continue" : "Skip"}
+              </button>
             </div>
           </section>
         ) : null}

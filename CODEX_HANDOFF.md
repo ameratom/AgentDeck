@@ -83,10 +83,31 @@ The first release is **observability + controlled chat routing**, not full auton
 - Guide: `docs/chatgpt-app-submission.md`
 - Test prompts: `docs/chatgpt-test-prompts.md`
 - Validate: `./scripts/validate-chatgpt-submission.sh`
+- Tunnel smoke: `./scripts/smoke-chatgpt-tunnel.sh` (19 checks; requires AgentDeck + tunnel running)
 - Tunnel helper: `scripts/run-chatgpt-mcp-tunnel.sh`
 - Tunnel UI: MCP view → Start tunnel → Open operator UI
 
+**Operator checklist (needs human in ChatGPT):**
+
+1. Launch AgentDeck.app
+2. Confirm tunnel connected (smoke test green)
+3. Run positive prompts from `docs/chatgpt-test-prompts.md` (health → agents → MCP → audit → graph → combined → scan → handoff)
+4. Run negative prompts; confirm AgentDeck is **not** invoked
+5. Submit via [platform.openai.com/apps](https://platform.openai.com/apps) using tunnel URL + `chatgpt-app-submission.json`
+
+## Overnight autonomy (Hermes — implemented, uncommitted)
+
+- Policy: `docs/autonomy-policy.md`
+- Operator guide: `HERMES.md`
+- Verification: `docs/verification.md` (`pnpm verify`, §18 enablement)
+- CLI: `pnpm hermes:guard`, `pnpm hermes:overnight`, `pnpm hermes:overnight:dry-run`
+- Composer bridge: `cursor agent --print --mode plan` (requires `cursor agent login` or `CURSOR_API_KEY`)
+- Queue: `tasks/overnight.queue.json` → reports in `tasks/reports/`
+
+First supervised live overnight run recommended before unattended use.
+
 ## Next candidates
 
-1. Submit ChatGPT app via Platform dashboard after tunnel smoke test passes
-2. Phase 12: project-aware onboarding, Claude Code MCP serve export
+1. **You:** ChatGPT manual prompt test + Platform dashboard submission
+2. **You:** Review + commit Hermes/overnight autonomy work (on `main`, uncommitted)
+3. Phase 12 complete — project-aware onboarding + Claude Code MCP serve export (uncommitted with Hermes work)

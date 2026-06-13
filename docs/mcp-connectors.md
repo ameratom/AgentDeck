@@ -206,6 +206,11 @@ documents. Billing uses your Claude Agent SDK credit pool.
 
 Template: `data/connectors/claude-code-mcp.json`
 
+AgentDeck can generate project-bound exports that include `claude-code` alongside
+`agentdeck`, `filesystem`, and `git` from **MCP → Export** or first-run onboarding.
+Exports are written under Application Support and are not copied into `.mcp.json`
+automatically.
+
 ---
 
 ## 4. Codex / OpenAI HTTP MCP

@@ -10,7 +10,11 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:xai-research-mcp": "node --test scripts/xai-research-mcp.node-test.mjs",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "verify": "pnpm typecheck && pnpm lint && pnpm test && cargo test --manifest-path src-tauri/Cargo.toml && bash scripts/preflight.sh",
+    "hermes:guard": "cargo run --manifest-path src-tauri/Cargo.toml --bin hermes -- guard --dry-run \"pnpm verify\"",
+    "hermes:overnight": "cargo run --manifest-path src-tauri/Cargo.toml --bin hermes -- overnight --queue tasks/overnight.queue.json",
+    "hermes:overnight:dry-run": "AGENTDECK_COMPOSER_BRIDGE=dry-run pnpm hermes:overnight"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",

@@ -1,3 +1,4 @@
+pub mod autonomy;
 mod commands;
 mod connector_bridge;
 mod router;

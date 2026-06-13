@@ -631,6 +631,34 @@ fn migrate_database(connection: &Connection) -> Result<(), String> {
             )
             .map_err(|error| format!("failed to record schema migration: {error}"))?;
     }
+    if !migration_applied(connection, 10)? {
+        let has_claude_code_serve = connection
+            .prepare("PRAGMA table_info(project_connector_settings)")
+            .and_then(|mut statement| {
+                let columns = statement.query_map([], |row| row.get::<_, String>(1))?;
+                Ok(columns
+                    .filter_map(Result::ok)
+                    .any(|column| column == "claude_code_serve_enabled"))
+            })
+            .map_err(|error| format!("failed to inspect connector settings schema: {error}"))?;
+        if !has_claude_code_serve {
+            connection
+                .execute(
+                    "ALTER TABLE project_connector_settings
+                     ADD COLUMN claude_code_serve_enabled INTEGER NOT NULL DEFAULT 0",
+                    [],
+                )
+                .map_err(|error| {
+                    format!("failed to add claude code serve connector flag: {error}")
+                })?;
+        }
+        connection
+            .execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+                params![10_i64, Utc::now().to_rfc3339()],
+            )
+            .map_err(|error| format!("failed to record schema migration: {error}"))?;
+    }
     Ok(())
 }
 
@@ -689,21 +717,33 @@ pub fn load_project_connector_settings(
 ) -> Result<Option<ProjectConnectorSettings>, String> {
     connection
         .query_row(
-            "SELECT filesystem_enabled, git_enabled, claude_export_path,
-                    codex_export_path, updated_at
+            "SELECT filesystem_enabled, git_enabled, claude_code_serve_enabled,
+                    claude_export_path, codex_export_path, updated_at
              FROM project_connector_settings
              WHERE project_id = ?1",
             [&project.id],
             |row| {
+                let claude_export_path: String = row.get(3)?;
+                let claude_code_serve_export_path = Path::new(&claude_export_path)
+                    .parent()
+                    .map(|directory| {
+                        directory
+                            .join("claude-code-serve.mcp.json")
+                            .to_string_lossy()
+                            .into_owned()
+                    })
+                    .unwrap_or_else(|| "claude-code-serve.mcp.json".to_owned());
                 Ok(ProjectConnectorSettings {
                     project_id: project.id.clone(),
                     project_name: project.name.clone(),
                     project_path: project.path.clone(),
                     filesystem_enabled: row.get::<_, i64>(0)? != 0,
                     git_enabled: row.get::<_, i64>(1)? != 0,
-                    claude_export_path: row.get(2)?,
-                    codex_export_path: row.get(3)?,
-                    updated_at: row.get(4)?,
+                    claude_code_serve_enabled: row.get::<_, i64>(2)? != 0,
+                    claude_export_path,
+                    codex_export_path: row.get(4)?,
+                    claude_code_serve_export_path,
+                    updated_at: row.get(5)?,
                 })
             },
         )
@@ -1265,6 +1305,7 @@ fn redact_snapshot(mut snapshot: LocalDataExport) -> LocalDataExport {
             settings.project_path = "[redacted path]".to_owned();
             settings.claude_export_path = "[redacted path]".to_owned();
             settings.codex_export_path = "[redacted path]".to_owned();
+            settings.claude_code_serve_export_path = "[redacted path]".to_owned();
             settings
         })
         .collect();

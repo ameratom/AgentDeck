@@ -52,14 +52,29 @@ Act as a senior software engineer. Make small, verifiable changes. Prefer workin
 
 ## Validation
 
-After each phase, run:
+Canonical verification command:
 
 ```bash
-pnpm typecheck
-pnpm lint
-pnpm test
-cargo test --manifest-path src-tauri/Cargo.toml
+pnpm verify
+```
+
+`pnpm verify` runs typecheck, lint, frontend tests, Rust tests, and `scripts/preflight.sh`. Hermes must not mark any task complete unless `pnpm verify` passes.
+
+Manual launch check (not part of `pnpm verify`):
+
+```bash
 pnpm tauri dev
 ```
 
-If a command is not configured yet, add the missing script or document why it is deferred.
+If a command is missing, add it or document the deferral in `docs/verification.md`.
+
+## Overnight autonomy (Hermes)
+
+Execution chain: **Planner → Hermes → Composer (patch only) → `run_guarded` → repo**.
+
+- Hermes classifies every action ALLOW / ASK_FIRST / DENY per [docs/autonomy-policy.md](docs/autonomy-policy.md).
+- All shell commands in the overnight loop route through `run_guarded` in `src-tauri/src/autonomy/command_runner.rs`.
+- Composer returns patch text only via `invoke_composer`; it does not execute commands or access credentials.
+- Overnight queue, loop, and report format: [HERMES.md](HERMES.md).
+- Composer bridge: `cursor agent --print --mode plan` via `invoke_composer` (`src-tauri/src/autonomy/composer_bridge.rs`). Requires `CURSOR_API_KEY` or `cursor agent login`.
+- Unattended overnight runs require [enablement conditions](docs/verification.md#overnight-autonomy-enablement-18), including Cursor Agent auth.
