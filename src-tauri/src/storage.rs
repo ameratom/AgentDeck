@@ -10,8 +10,8 @@ use tauri::{AppHandle, Manager};
 
 use crate::models::{
     AppSettings, AuditEventRecord, AuditEventsPage, ChatMessage, ChatPreferences, HandoffRun,
-    LocalDeleteResult, LocalExportResult, ProjectWorkspace, RouterRule, SkillExecutionRecord,
-    ProjectConnectorSettings,
+    LocalDeleteResult, LocalExportResult, ProjectConnectorSettings, ProjectWorkspace, RouterRule,
+    SkillExecutionRecord, WebhookEndpoint,
 };
 
 const DEFAULT_REDACT_SENSITIVE_EXPORTS: bool = true;
@@ -751,7 +751,163 @@ fn migrate_database(connection: &Connection) -> Result<(), String> {
             )
             .map_err(|error| format!("failed to record schema migration: {error}"))?;
     }
+    if !migration_applied(connection, 12)? {
+        connection
+            .execute(
+                "CREATE TABLE IF NOT EXISTS webhook_endpoints (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    url TEXT NOT NULL,
+                    enabled INTEGER NOT NULL,
+                    event_types_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )",
+                [],
+            )
+            .map_err(|error| format!("failed to create webhook endpoints table: {error}"))?;
+        connection
+            .execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+                params![12_i64, Utc::now().to_rfc3339()],
+            )
+            .map_err(|error| format!("failed to record schema migration: {error}"))?;
+    }
     Ok(())
+}
+
+pub fn webhook_secret_slot(endpoint_id: &str) -> String {
+    format!("webhook-secret:{endpoint_id}")
+}
+
+pub fn plugin_enabled(connection: &Connection, plugin_id: &str) -> Result<bool, String> {
+    let enabled: Option<i64> = connection
+        .query_row(
+            "SELECT enabled FROM plugin_settings WHERE plugin_id = ?1",
+            params![plugin_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| format!("failed to read plugin setting: {error}"))?;
+    Ok(enabled.map(|value| value != 0).unwrap_or(true))
+}
+
+pub fn load_webhook_endpoints(
+    connection: &Connection,
+    database_path: &Path,
+) -> Result<Vec<WebhookEndpoint>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT id, name, url, enabled, event_types_json, updated_at
+             FROM webhook_endpoints
+             ORDER BY name ASC, id ASC",
+        )
+        .map_err(|error| format!("failed to prepare webhook endpoint query: {error}"))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)? != 0,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+            ))
+        })
+        .map_err(|error| format!("failed to load webhook endpoints: {error}"))?;
+
+    rows.map(|row| {
+        let (id, name, url, enabled, event_types_json, updated_at) =
+            row.map_err(|error| format!("failed to decode webhook endpoint: {error}"))?;
+        let event_types: Vec<String> = serde_json::from_str(&event_types_json).map_err(|error| {
+            format!("failed to decode webhook event types for {id}: {error}")
+        })?;
+        let has_secret = read_provider_secret(database_path, &webhook_secret_slot(&id))?
+            .is_some();
+        Ok(WebhookEndpoint {
+            id,
+            name,
+            url,
+            enabled,
+            event_types,
+            has_secret,
+            updated_at,
+        })
+    })
+    .collect()
+}
+
+pub fn replace_webhook_endpoints(
+    connection: &Connection,
+    database_path: &Path,
+    endpoints: &[WebhookEndpoint],
+) -> Result<Vec<WebhookEndpoint>, String> {
+    if endpoints.len() > 24 {
+        return Err("webhook endpoint registry supports at most 24 entries".to_owned());
+    }
+
+    let existing_ids: Vec<String> = connection
+        .prepare("SELECT id FROM webhook_endpoints")
+        .map_err(|error| format!("failed to prepare webhook endpoint ids query: {error}"))?
+        .query_map([], |row| row.get(0))
+        .map_err(|error| format!("failed to load webhook endpoint ids: {error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("failed to decode webhook endpoint ids: {error}"))?;
+
+    let next_ids = endpoints
+        .iter()
+        .map(|endpoint| endpoint.id.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    for endpoint in endpoints {
+        validate_identifier("webhook endpoint ID", &endpoint.id)?;
+        validate_identifier("webhook endpoint name", &endpoint.name)?;
+        crate::webhooks::validate_url(&endpoint.url)?;
+        if endpoint.event_types.is_empty() {
+            return Err(format!(
+                "webhook endpoint {} must subscribe to at least one event",
+                endpoint.id
+            ));
+        }
+        for event_type in &endpoint.event_types {
+            crate::webhooks::validate_event_type(event_type)?;
+        }
+    }
+
+    connection
+        .execute("DELETE FROM webhook_endpoints", [])
+        .map_err(|error| format!("failed to clear webhook endpoints: {error}"))?;
+
+    let updated_at = Utc::now().to_rfc3339();
+    for endpoint in endpoints {
+        let event_types_json = serde_json::to_string(&endpoint.event_types).map_err(|error| {
+            format!(
+                "failed to encode webhook event types for {}: {error}",
+                endpoint.id
+            )
+        })?;
+        connection
+            .execute(
+                "INSERT INTO webhook_endpoints
+                    (id, name, url, enabled, event_types_json, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    endpoint.id,
+                    endpoint.name,
+                    endpoint.url,
+                    if endpoint.enabled { 1_i64 } else { 0_i64 },
+                    event_types_json,
+                    updated_at,
+                ],
+            )
+            .map_err(|error| format!("failed to store webhook endpoint: {error}"))?;
+    }
+
+    for existing_id in existing_ids {
+        if !next_ids.contains(existing_id.as_str()) {
+            let _ = delete_provider_secret(database_path, &webhook_secret_slot(&existing_id));
+        }
+    }
+
+    load_webhook_endpoints(connection, database_path)
 }
 
 pub fn load_project_workspaces(

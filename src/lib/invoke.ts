@@ -32,6 +32,8 @@ import type {
   AuditEventsPage,
   LegacyCredentialImportResult,
   ProjectWorkspaceList,
+  WebhookDispatchResult,
+  WebhookEndpointMatrix,
 } from "./types";
 
 export function runPreflight(): Promise<PreflightResult> {
@@ -272,4 +274,34 @@ export function loadAuditEvents(
   filter?: string,
 ): Promise<AuditEventsPage> {
   return invoke<AuditEventsPage>("load_audit_events", { limit, offset, filter });
+}
+
+export function loadWebhookEndpoints(): Promise<WebhookEndpointMatrix> {
+  return invoke<WebhookEndpointMatrix>("load_webhook_endpoints");
+}
+
+export function saveWebhookEndpoints(
+  endpoints: WebhookEndpointMatrix["endpoints"],
+): Promise<WebhookEndpointMatrix> {
+  return invoke<WebhookEndpointMatrix>("save_webhook_endpoints", {
+    request: { endpoints },
+  });
+}
+
+export function saveWebhookSecret(
+  endpointId: string,
+  secret: string,
+): Promise<WebhookEndpointMatrix> {
+  return invoke<WebhookEndpointMatrix>("save_webhook_secret", {
+    request: { endpointId, secret },
+  });
+}
+
+export function dispatchWebhookEvent(request: {
+  endpointId: string;
+  eventType: string;
+  payload: Record<string, unknown>;
+  approvals: string[];
+}): Promise<WebhookDispatchResult> {
+  return invoke<WebhookDispatchResult>("dispatch_webhook_event", { request });
 }

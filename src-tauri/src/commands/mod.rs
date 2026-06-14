@@ -8,6 +8,7 @@ pub mod plugins;
 pub mod projects;
 pub mod providers;
 pub mod router;
+pub mod webhooks;
 
 pub mod settings;
 

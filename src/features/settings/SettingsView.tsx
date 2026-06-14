@@ -1,13 +1,17 @@
 import { useEffect, useState } from "react";
 import {
   deleteLocalData,
+  dispatchWebhookEvent,
   exportLocalData,
   loadAppSettings,
   loadRouterRules,
+  loadWebhookEndpoints,
   saveRouterRules,
+  saveWebhookEndpoints,
+  saveWebhookSecret,
   updateAppSettings,
 } from "../../lib/invoke";
-import type { AppSettings, RouterRule } from "../../lib/types";
+import type { AppSettings, RouterRule, WebhookEndpoint } from "../../lib/types";
 import {
   ROUTER_PROVIDER_OPTIONS,
   ROUTER_SOURCE_OPTIONS,
@@ -16,6 +20,14 @@ import {
   removeRouterRule,
   updateRouterRule,
 } from "./routerModel";
+import {
+  WEBHOOK_EVENT_OPTIONS,
+  createWebhookEndpoint,
+  removeWebhookEndpoint,
+  toggleWebhookEvent,
+  updateWebhookEndpoint,
+  webhookDispatchApproval,
+} from "./webhookModel";
 
 const DEFAULT_SETTINGS: AppSettings = {
   redactSensitiveExports: true,
@@ -31,6 +43,13 @@ export function SettingsView() {
   const [busyAction, setBusyAction] = useState<"export" | "delete" | null>(null);
   const [routerRules, setRouterRules] = useState<RouterRule[]>([]);
   const [savingRouter, setSavingRouter] = useState(false);
+  const [webhookEndpoints, setWebhookEndpoints] = useState<WebhookEndpoint[]>([]);
+  const [webhooksPluginEnabled, setWebhooksPluginEnabled] = useState(true);
+  const [savingWebhooks, setSavingWebhooks] = useState(false);
+  const [webhookSecrets, setWebhookSecrets] = useState<Record<string, string>>({});
+  const [dispatchingWebhookId, setDispatchingWebhookId] = useState<string | null>(
+    null,
+  );
   const [status, setStatus] = useState("Loading hardening settings.");
 
   useEffect(() => {
@@ -38,13 +57,16 @@ export function SettingsView() {
 
     async function load(): Promise<void> {
       try {
-        const [nextSettings, routerMatrix] = await Promise.all([
+        const [nextSettings, routerMatrix, webhookMatrix] = await Promise.all([
           loadAppSettings(),
           loadRouterRules(),
+          loadWebhookEndpoints(),
         ]);
         if (!cancelled) {
           setSettings(nextSettings);
           setRouterRules(routerMatrix.rules);
+          setWebhookEndpoints(webhookMatrix.endpoints);
+          setWebhooksPluginEnabled(webhookMatrix.pluginEnabled);
           setStatus("Hardening settings loaded.");
         }
       } catch (error) {
@@ -90,6 +112,75 @@ export function SettingsView() {
       setStatus(`Export failed: ${formatError(error)}`);
     } finally {
       setBusyAction(null);
+    }
+  }
+
+  async function persistWebhookEndpoints(
+    nextEndpoints: WebhookEndpoint[],
+  ): Promise<void> {
+    setSavingWebhooks(true);
+    setStatus("Saving webhook endpoints...");
+    try {
+      const saved = await saveWebhookEndpoints(nextEndpoints);
+      setWebhookEndpoints(saved.endpoints);
+      setWebhooksPluginEnabled(saved.pluginEnabled);
+      setStatus("Webhook endpoints saved.");
+    } catch (error) {
+      setStatus(`Webhook save failed: ${formatError(error)}`);
+    } finally {
+      setSavingWebhooks(false);
+    }
+  }
+
+  async function persistWebhookSecret(endpointId: string): Promise<void> {
+    setSavingWebhooks(true);
+    setStatus("Saving webhook signing secret...");
+    try {
+      const saved = await saveWebhookSecret(
+        endpointId,
+        webhookSecrets[endpointId] ?? "",
+      );
+      setWebhookEndpoints(saved.endpoints);
+      setWebhooksPluginEnabled(saved.pluginEnabled);
+      setWebhookSecrets((current) => ({ ...current, [endpointId]: "" }));
+      setStatus("Webhook signing secret updated.");
+    } catch (error) {
+      setStatus(`Webhook secret save failed: ${formatError(error)}`);
+    } finally {
+      setSavingWebhooks(false);
+    }
+  }
+
+  async function sendTestWebhook(endpoint: WebhookEndpoint): Promise<void> {
+    if (
+      !window.confirm(
+        `Send a signed test.ping webhook to "${endpoint.name}"?\n\n${endpoint.url}`,
+      )
+    ) {
+      return;
+    }
+
+    setDispatchingWebhookId(endpoint.id);
+    setStatus(`Dispatching test webhook to ${endpoint.name}...`);
+    try {
+      const result = await dispatchWebhookEvent({
+        endpointId: endpoint.id,
+        eventType: "test.ping",
+        payload: {
+          message: "AgentDeck webhook test",
+          endpointName: endpoint.name,
+        },
+        approvals: [webhookDispatchApproval(endpoint.name)],
+      });
+      setStatus(
+        result.success
+          ? `Webhook delivered (${result.statusCode}, ${result.auditRef}).`
+          : `Webhook failed: ${result.detail}`,
+      );
+    } catch (error) {
+      setStatus(`Webhook dispatch failed: ${formatError(error)}`);
+    } finally {
+      setDispatchingWebhookId(null);
     }
   }
 
@@ -418,6 +509,199 @@ export function SettingsView() {
             type="button"
           >
             {savingRouter ? "Saving..." : "Save router rules"}
+          </button>
+        </div>
+      </section>
+
+      <section className="settings-router" aria-label="Outbound webhooks">
+        <header>
+          <div>
+            <p className="eyebrow">Integrations</p>
+            <h3>Outbound webhooks</h3>
+            <p>
+              Configure explicit outbound event delivery with optional HMAC
+              signing. Dispatch requires the Webhooks plugin and user approval.
+              Inbound listeners remain deferred.
+            </p>
+          </div>
+          <span>{webhooksPluginEnabled ? "Plugin enabled" : "Plugin disabled"}</span>
+        </header>
+
+        {!webhooksPluginEnabled ? (
+          <p className="settings-note">
+            Enable the Webhooks plugin under Plugins before dispatching events.
+          </p>
+        ) : null}
+
+        <div className="settings-router-list">
+          {webhookEndpoints.length ? (
+            webhookEndpoints.map((endpoint) => (
+              <article className="settings-router-rule" key={endpoint.id}>
+                <div className="settings-router-rule-head">
+                  <div>
+                    <strong>{endpoint.name}</strong>
+                    <small>
+                      {endpoint.id}
+                      {endpoint.hasSecret ? " · signed" : " · unsigned"}
+                    </small>
+                  </div>
+                  <label className="settings-toggle">
+                    <input
+                      checked={endpoint.enabled}
+                      disabled={savingWebhooks || loading}
+                      onChange={(event) =>
+                        setWebhookEndpoints((current) =>
+                          updateWebhookEndpoint(current, endpoint.id, {
+                            enabled: event.target.checked,
+                          }),
+                        )
+                      }
+                      type="checkbox"
+                    />
+                    <span>Enabled</span>
+                  </label>
+                </div>
+
+                <div className="settings-router-fields">
+                  <label>
+                    Endpoint name
+                    <input
+                      disabled={savingWebhooks || loading}
+                      onChange={(event) =>
+                        setWebhookEndpoints((current) =>
+                          updateWebhookEndpoint(current, endpoint.id, {
+                            name: event.target.value,
+                          }),
+                        )
+                      }
+                      value={endpoint.name}
+                    />
+                  </label>
+                  <label>
+                    Target URL
+                    <input
+                      disabled={savingWebhooks || loading}
+                      onChange={(event) =>
+                        setWebhookEndpoints((current) =>
+                          updateWebhookEndpoint(current, endpoint.id, {
+                            url: event.target.value,
+                          }),
+                        )
+                      }
+                      placeholder="https://hooks.example.com/agentdeck"
+                      value={endpoint.url}
+                    />
+                  </label>
+                  <label>
+                    Signing secret
+                    <input
+                      disabled={savingWebhooks || loading}
+                      onChange={(event) =>
+                        setWebhookSecrets((current) => ({
+                          ...current,
+                          [endpoint.id]: event.target.value,
+                        }))
+                      }
+                      placeholder={
+                        endpoint.hasSecret
+                          ? "Leave blank to keep current secret"
+                          : "Optional HMAC secret"
+                      }
+                      type="password"
+                      value={webhookSecrets[endpoint.id] ?? ""}
+                    />
+                  </label>
+                </div>
+
+                <div className="settings-webhook-events">
+                  {WEBHOOK_EVENT_OPTIONS.map((option) => (
+                    <label className="settings-toggle" key={option.id}>
+                      <input
+                        checked={endpoint.eventTypes.includes(option.id)}
+                        disabled={savingWebhooks || loading}
+                        onChange={(event) =>
+                          setWebhookEndpoints((current) =>
+                            toggleWebhookEvent(
+                              current,
+                              endpoint.id,
+                              option.id,
+                              event.target.checked,
+                            ),
+                          )
+                        }
+                        type="checkbox"
+                      />
+                      <span>{option.label}</span>
+                    </label>
+                  ))}
+                </div>
+
+                <div className="settings-router-actions">
+                  <button
+                    disabled={
+                      savingWebhooks ||
+                      loading ||
+                      !webhooksPluginEnabled ||
+                      !endpoint.enabled ||
+                      dispatchingWebhookId !== null
+                    }
+                    onClick={() => void sendTestWebhook(endpoint)}
+                    type="button"
+                  >
+                    {dispatchingWebhookId === endpoint.id
+                      ? "Sending..."
+                      : "Send test ping"}
+                  </button>
+                  <button
+                    className="secondary-button"
+                    disabled={savingWebhooks || loading}
+                    onClick={() => void persistWebhookSecret(endpoint.id)}
+                    type="button"
+                  >
+                    Save secret
+                  </button>
+                  <button
+                    className="secondary-button"
+                    disabled={savingWebhooks || loading}
+                    onClick={() =>
+                      setWebhookEndpoints((current) =>
+                        removeWebhookEndpoint(current, endpoint.id),
+                      )
+                    }
+                    type="button"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </article>
+            ))
+          ) : (
+            <p className="settings-note">
+              No webhook endpoints yet. Add one to test signed outbound delivery.
+            </p>
+          )}
+        </div>
+
+        <div className="settings-router-actions">
+          <button
+            disabled={savingWebhooks || loading || webhookEndpoints.length >= 24}
+            onClick={() =>
+              setWebhookEndpoints((current) => [
+                ...current,
+                createWebhookEndpoint(),
+              ])
+            }
+            type="button"
+          >
+            Add endpoint
+          </button>
+          <button
+            className="secondary-button"
+            disabled={savingWebhooks || loading}
+            onClick={() => void persistWebhookEndpoints(webhookEndpoints)}
+            type="button"
+          >
+            {savingWebhooks ? "Saving..." : "Save webhook endpoints"}
           </button>
         </div>
       </section>

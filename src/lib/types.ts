@@ -436,3 +436,29 @@ export interface AuditEventsPage {
   limit: number;
   offset: number;
 }
+
+export interface WebhookEndpoint {
+  id: string;
+  name: string;
+  url: string;
+  enabled: boolean;
+  eventTypes: string[];
+  hasSecret: boolean;
+  updatedAt: string;
+}
+
+export interface WebhookEndpointMatrix {
+  loadedAt: string;
+  pluginEnabled: boolean;
+  endpoints: WebhookEndpoint[];
+}
+
+export interface WebhookDispatchResult {
+  endpointId: string;
+  eventType: string;
+  statusCode: number;
+  success: boolean;
+  detail: string;
+  auditRef: string;
+  dispatchedAt: string;
+}

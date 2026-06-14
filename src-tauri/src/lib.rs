@@ -9,6 +9,7 @@ mod mcp_input_schemas;
 mod mcp_output_schemas;
 pub mod mcp_server;
 mod models;
+mod webhooks;
 mod permissions;
 mod secrets;
 mod storage;
@@ -88,6 +89,10 @@ pub fn run() {
             commands::router::load_router_rules,
             commands::router::save_router_rules,
             commands::router::suggest_handoff_route,
+            commands::webhooks::load_webhook_endpoints,
+            commands::webhooks::save_webhook_endpoints,
+            commands::webhooks::save_webhook_secret,
+            commands::webhooks::dispatch_webhook_event,
             commands::projects::list_projects,
             commands::projects::register_project,
             commands::projects::set_active_project,

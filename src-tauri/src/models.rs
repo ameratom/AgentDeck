@@ -560,3 +560,57 @@ pub struct RegisterProjectRequest {
     pub path: String,
     pub name: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookEndpoint {
+    pub id: String,
+    pub name: String,
+    pub url: String,
+    pub enabled: bool,
+    pub event_types: Vec<String>,
+    pub has_secret: bool,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookEndpointMatrix {
+    pub loaded_at: String,
+    pub plugin_enabled: bool,
+    pub endpoints: Vec<WebhookEndpoint>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveWebhookEndpointsRequest {
+    pub endpoints: Vec<WebhookEndpoint>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookSecretRequest {
+    pub endpoint_id: String,
+    pub secret: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookDispatchRequest {
+    pub endpoint_id: String,
+    pub event_type: String,
+    pub payload: serde_json::Value,
+    pub approvals: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookDispatchResult {
+    pub endpoint_id: String,
+    pub event_type: String,
+    pub status_code: u16,
+    pub success: bool,
+    pub detail: String,
+    pub audit_ref: String,
+    pub dispatched_at: String,
+}
