@@ -1,5 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   chatgptReviewHealth,
   grokMcpBridgeStatus,
@@ -106,7 +106,7 @@ export function McpView() {
     }
   }
 
-  async function refreshReviewHealth(): Promise<void> {
+  const refreshReviewHealth = useCallback(async (): Promise<void> => {
     setReviewRefreshing(true);
     try {
       const nextHealth = await chatgptReviewHealth();
@@ -117,7 +117,7 @@ export function McpView() {
     } finally {
       setReviewRefreshing(false);
     }
-  }
+  }, []);
 
   async function updateTunnel(
     action: "refresh" | "start" | "stop" | "open",
@@ -228,6 +228,22 @@ export function McpView() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen<ChatgptReviewHealth>("chatgpt-review-updated", (event) => {
+      setReviewHealth(event.payload);
+    }).then((dispose) => {
+      unlisten = dispose;
+    });
+    const interval = window.setInterval(() => {
+      void refreshReviewHealth();
+    }, 60_000);
+    return () => {
+      window.clearInterval(interval);
+      unlisten?.();
+    };
+  }, [refreshReviewHealth]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;

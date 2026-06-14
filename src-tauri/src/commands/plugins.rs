@@ -414,7 +414,7 @@ mod tests {
     fn loads_declared_plugins_and_skills() {
         let plugins = load_plugin_records().unwrap();
         let skills = load_skills().unwrap();
-        assert_eq!(plugins.len(), 10);
+        assert_eq!(plugins.len(), 11);
         assert_eq!(skills.len(), 9);
     }
 

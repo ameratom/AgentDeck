@@ -1,0 +1,4 @@
+[mcp_servers.neon]
+command = "npx"
+args = ["-y", "@neondatabase/mcp-server-neon"]
+env = { NEON_API_KEY = "YOUR_NEON_API_KEY_HERE" }

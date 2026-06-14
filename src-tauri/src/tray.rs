@@ -6,6 +6,7 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{TrayIcon, TrayIconBuilder};
 use tauri::{AppHandle, Emitter, Manager, Wry};
 
+use crate::chatgpt_review::ChatgptReviewHealth;
 use crate::commands;
 use crate::commands::handoffs;
 use crate::models::{EnvironmentScan, HandoffRun};
@@ -25,6 +26,8 @@ enum TrayHealth {
 struct TrayState {
     tray: TrayIcon<Wry>,
     run_items: [MenuItem<Wry>; 3],
+    agent_health: TrayHealth,
+    review_ready: Option<bool>,
 }
 
 static TRAY_STATE: Mutex<Option<TrayState>> = Mutex::new(None);
@@ -96,10 +99,34 @@ pub fn setup(app: &AppHandle) -> Result<(), String> {
         let mut guard = TRAY_STATE
             .lock()
             .map_err(|_| "tray state lock poisoned".to_owned())?;
-        *guard = Some(TrayState { tray, run_items });
+        *guard = Some(TrayState {
+            tray,
+            run_items,
+            agent_health: TrayHealth::Yellow,
+            review_ready: None,
+        });
     }
 
     refresh_from_scan(app, &commands::scan_environment_for_app(app))?;
+    Ok(())
+}
+
+pub fn set_chatgpt_review_tooltip(app: &AppHandle, health: &ChatgptReviewHealth) -> Result<(), String> {
+    let mut guard = TRAY_STATE
+        .lock()
+        .map_err(|_| "tray state lock poisoned".to_owned())?;
+    let Some(state) = guard.as_mut() else {
+        return Ok(());
+    };
+    state.review_ready = Some(health.ready_for_reviewers);
+    state
+        .tray
+        .set_tooltip(Some(combined_tray_tooltip(
+            state.agent_health,
+            state.review_ready,
+        )))
+        .map_err(|error| format!("failed to update tray tooltip: {error}"))?;
+    let _ = app;
     Ok(())
 }
 
@@ -117,13 +144,14 @@ fn update_tray(health: TrayHealth, runs: &[HandoffRun]) -> Result<(), String> {
         return Ok(());
     };
 
+    state.agent_health = health;
     state
         .tray
         .set_icon(Some(tray_icon(health)?))
         .map_err(|error| format!("failed to update tray icon: {error}"))?;
     state
         .tray
-        .set_tooltip(Some(tray_tooltip(health)))
+        .set_tooltip(Some(combined_tray_tooltip(health, state.review_ready)))
         .map_err(|error| format!("failed to update tray tooltip: {error}"))?;
 
     for (index, item) in state.run_items.iter().enumerate() {
@@ -189,6 +217,15 @@ fn tray_tooltip(health: TrayHealth) -> &'static str {
     }
 }
 
+fn combined_tray_tooltip(health: TrayHealth, review_ready: Option<bool>) -> String {
+    let base = tray_tooltip(health);
+    match review_ready {
+        Some(true) => format!("{base} | ChatGPT review: ready for reviewers"),
+        Some(false) => format!("{base} | ChatGPT review: action needed"),
+        None => base.to_owned(),
+    }
+}
+
 fn tray_icon(health: TrayHealth) -> Result<Image<'static>, String> {
     let file_name = match health {
         TrayHealth::Green => "tray-green.png",
@@ -216,6 +253,14 @@ mod tests {
             source: "test".to_owned(),
             metadata: BTreeMap::new(),
         }
+    }
+
+    #[test]
+    fn combined_tooltip_mentions_chatgpt_review_state() {
+        let ready = combined_tray_tooltip(TrayHealth::Green, Some(true));
+        assert!(ready.contains("ready for reviewers"));
+        let action = combined_tray_tooltip(TrayHealth::Yellow, Some(false));
+        assert!(action.contains("action needed"));
     }
 
     #[test]

@@ -5,6 +5,7 @@ use std::process;
 use agentdeck_lib::autonomy::{
     run_guarded, run_overnight, write_report, PolicyVerdict,
 };
+use agentdeck_lib::chatgpt_review;
 
 fn main() {
     if let Err(code) = run() {
@@ -22,12 +23,23 @@ fn run() -> Result<(), String> {
     match args.remove(0).as_str() {
         "guard" => run_guard_command(&args),
         "overnight" => run_overnight_command(&args),
+        "review" => run_review_command(),
         _ => Err(usage()),
     }
 }
 
 fn usage() -> String {
-    "usage: hermes guard [--execute|--dry-run] <command>\n       hermes overnight [--queue <path>] [--execute-verify]".to_owned()
+    "usage: hermes guard [--execute|--dry-run] <command>\n       hermes overnight [--queue <path>] [--execute-verify]\n       hermes review".to_owned()
+}
+
+fn run_review_command() -> Result<(), String> {
+    let health = chatgpt_review::evaluate_default_review_health()?;
+    println!("{}", serde_json::to_string_pretty(&health).map_err(|error| error.to_string())?);
+    if health.ready_for_reviewers {
+        Ok(())
+    } else {
+        Err("ChatGPT review readiness checks failed".to_owned())
+    }
 }
 
 fn run_guard_command(args: &[String]) -> Result<(), String> {

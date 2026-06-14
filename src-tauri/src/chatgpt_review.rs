@@ -38,6 +38,11 @@ pub struct ChatgptReviewHealth {
     pub checks: Vec<ReviewCheck>,
 }
 
+pub fn evaluate_default_review_health() -> Result<ChatgptReviewHealth, String> {
+    let database_path = crate::storage::resolve_database_path(None)?;
+    evaluate_review_health(&database_path)
+}
+
 pub fn evaluate_review_health(database_path: &Path) -> Result<ChatgptReviewHealth, String> {
     let checked_at = Utc::now().to_rfc3339();
     let profile = mcp_server::evaluate_submission_profile();

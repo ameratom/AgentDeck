@@ -1,6 +1,6 @@
 pub mod autonomy;
 mod commands;
-mod chatgpt_review;
+pub mod chatgpt_review;
 mod connector_bridge;
 mod router;
 pub mod mcp_http;
@@ -33,6 +33,22 @@ pub fn start_scan_event_bus(app: AppHandle) {
     });
 }
 
+const CHATGPT_REVIEW_MONITOR_INTERVAL_SECS: u64 = 90;
+
+pub fn start_chatgpt_review_monitor(app: AppHandle) {
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_secs(CHATGPT_REVIEW_MONITOR_INTERVAL_SECS));
+        let Ok(database_path) = storage::resolve_database_path(None) else {
+            continue;
+        };
+        let Ok(health) = chatgpt_review::evaluate_review_health(&database_path) else {
+            continue;
+        };
+        let _ = tray::set_chatgpt_review_tooltip(&app, &health);
+        let _ = app.emit("chatgpt-review-updated", health);
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -49,6 +65,7 @@ pub fn run() {
                 let _ = app_handle.emit("scan-updated", initial_scan);
             });
             start_scan_event_bus(app.handle().clone());
+            start_chatgpt_review_monitor(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

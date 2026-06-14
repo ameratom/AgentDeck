@@ -14,7 +14,9 @@
     "verify": "pnpm typecheck && pnpm lint && pnpm test && cargo test --manifest-path src-tauri/Cargo.toml && bash scripts/preflight.sh",
     "hermes:guard": "cargo run --manifest-path src-tauri/Cargo.toml --bin hermes -- guard --dry-run \"pnpm verify\"",
     "hermes:overnight": "cargo run --manifest-path src-tauri/Cargo.toml --bin hermes -- overnight --queue tasks/overnight.queue.json",
-    "hermes:overnight:dry-run": "AGENTDECK_COMPOSER_BRIDGE=dry-run pnpm hermes:overnight"
+    "hermes:overnight:dry-run": "AGENTDECK_COMPOSER_BRIDGE=dry-run pnpm hermes:overnight",
+    "hermes:review": "cargo run --manifest-path src-tauri/Cargo.toml --bin hermes -- review",
+    "chatgpt:review-health": "bash scripts/check-chatgpt-review-health.sh"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",

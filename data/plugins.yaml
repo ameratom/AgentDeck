@@ -71,3 +71,13 @@ plugins:
     capabilities:
       - browser diagnostics
       - app verification
+  - id: agentdeck-plugin-neon
+    name: Neon
+    description: Neon serverless Postgres integration via official MCP server. Enables natural language database management, queries, branch operations, and data import/export workflows.
+    category: database
+    capabilities:
+      - database query
+      - project management
+      - data import
+      - branch management
+      - schema inspection

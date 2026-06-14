@@ -182,5 +182,6 @@ Tasks:
 - [x] Hermes composer patch parsing hardening
 - [x] Activity audit rows link to stored handoff runs
 - [x] v0.1.6 version bump and release notes (DMG notarization pending)
+- [x] ChatGPT review readiness panel, background monitor, and CLI checks
 - [ ] ChatGPT app v1.0.0 approved and published
 - [ ] Hermes supervised overnight run with live Composer bridge
