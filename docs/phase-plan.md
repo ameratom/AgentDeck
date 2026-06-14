@@ -170,3 +170,14 @@ Tasks:
 - [x] Grok-default handoff routing fallback and onboarding defaults
 - [x] Proxy read-only xAI Research tools through AgentDeck HTTP MCP
 - [x] ChatGPT submission package v1.1 (`read_only_v1_1`)
+
+## Phase 14
+
+ChatGPT publication and post-submission hardening.
+
+Tasks:
+
+- [x] MCP `outputSchema` on `tools/list` and `structuredContent` on `tools/call`
+- [ ] ChatGPT app v1.0.0 approved and published
+- [ ] v0.1.6 notarized release with submission MCP improvements
+- [ ] Hermes supervised overnight run with live Composer bridge

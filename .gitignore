@@ -11,3 +11,4 @@ Restart/
 .env
 .env.*
 !.env.example
+agentdeck-*.json

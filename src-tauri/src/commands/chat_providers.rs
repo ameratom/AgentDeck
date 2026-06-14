@@ -226,8 +226,10 @@ async fn stream_openai_with_tools(
         for tool_call in choice.message.tool_calls {
             let args = serde_json::from_str::<Value>(&tool_call.function.arguments)
                 .unwrap_or_else(|_| json!({}));
-            let (result, _is_error) =
+            let (result_value, _is_error) =
                 mcp_server::execute_agentdeck_tool(&tool_call.function.name, args)?;
+            let result = serde_json::to_string_pretty(&result_value)
+                .map_err(|error| format!("failed to encode tool result: {error}"))?;
             let _ = on_event.send(ChatStreamEvent::Token {
                 content: format!("\n[tool {}]\n", tool_call.function.name),
             });

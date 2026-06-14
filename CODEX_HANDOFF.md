@@ -8,11 +8,11 @@ Build folder:
 
 Remote: `https://github.com/ameratom/AgentDeck` (`main`)
 
-Latest release: [v0.1.4](https://github.com/ameratom/AgentDeck/releases/tag/v0.1.4)
+Latest release: [v0.1.5](https://github.com/ameratom/AgentDeck/releases/tag/v0.1.5)
 
 ## Current Status (June 2026)
 
-Phases **0–11** are complete. v0.1.4 ships ChatGPT MCP connector fixes.
+Phases **0–13** are complete. ChatGPT app **v1.0.0** is **in review** (not published yet).
 
 ### Shipped
 
@@ -30,9 +30,13 @@ Phases **0–11** are complete. v0.1.4 ships ChatGPT MCP connector fixes.
 | Local project registry + active workspace selection | ✔ |
 | Project-scoped config discovery, graph context, chat, and handoffs | ✔ |
 | Per-project filesystem/Git MCP profiles with validated exports | ✔ |
+| Project-aware onboarding + Claude Code MCP serve export | ✔ |
 | Secure MCP Tunnel controls (MCP view) | ✔ |
-| ChatGPT OAuth PRM + Streamable HTTP MCP fixes | ✔ v0.1.4 |
-| Signed + notarized macOS DMG | ✔ v0.1.4 |
+| ChatGPT OAuth PRM + Streamable HTTP MCP fixes | ✔ |
+| Read-only ChatGPT MCP profile (`read_only_v1_1`, 10 tools) | ✔ |
+| MCP `outputSchema` + `structuredContent` on tool results | ✔ |
+| Hermes overnight autonomy (CLI + policy) | ✔ |
+| Signed + notarized macOS DMG | ✔ v0.1.5 |
 
 ### Project MCP config (`.mcp.json`)
 
@@ -45,9 +49,8 @@ Grok auth flows through `~/Library/Application Support/com.agentdeck.desktop/gro
 ```bash
 pnpm install
 pnpm tauri dev
-pnpm test
+pnpm verify
 pnpm test:xai-research-mcp
-cd src-tauri && cargo test
 ```
 
 ### Release
@@ -56,7 +59,7 @@ cd src-tauri && cargo test
 source scripts/notarize.local.env
 pnpm tauri build
 ./scripts/notarize-macos.sh
-./scripts/create-github-release.sh v0.1.4
+./scripts/create-github-release.sh v0.1.5
 ```
 
 ### ChatGPT tunnel
@@ -66,6 +69,39 @@ pnpm tauri build
 ```
 
 Set `MCP_PUBLIC_RESOURCE_URL` in `chatgpt-mcp-tunnel.env` to the HTTPS URL ChatGPT uses. Guide: `docs/chatgpt-app-submission.md`
+
+## ChatGPT app submission (v1.0.0 — in review)
+
+| Field | Value |
+|-------|-------|
+| Platform status | **REVIEW** (submitted, awaiting OpenAI approval) |
+| App version | `1.0.0` |
+| MCP URL | `https://mcp.thedeckisstacked.win/mcp` |
+| Tools in snapshot | 10 read-only (no write tools) |
+| Safety scan | `SCANNED_OK` |
+| Local export | `agentdeck-1-0-0.json` (platform dump; gitignored) |
+
+Canonical metadata: `chatgpt-app-submission.json` (read-only v1.1 profile)
+
+**Publishing checklist (human):**
+
+1. **While in REVIEW:** keep AgentDeck.app running and the Secure MCP Tunnel connected so reviewers can reach `:7823` via the public URL.
+2. **When status → Approved:** open [platform.openai.com/apps-manage](https://platform.openai.com/apps-manage) and click **Publish** on version `1.0.0`.
+3. **After publish:** confirm the app is findable by exact name; directory placement is optional/enhanced distribution only.
+4. **Do not change** the published MCP tool contract (names, schemas, URLs) until a new draft version is submitted and approved.
+
+Write tools (`dispatch_handoff`, `execute_skill`, `toggle_mcp_server`) remain in developer mode for a future submission.
+
+## Overnight autonomy (Hermes)
+
+- Policy: `docs/autonomy-policy.md`
+- Operator guide: `HERMES.md`
+- Verification: `docs/verification.md` (`pnpm verify`, §18 enablement)
+- CLI: `pnpm hermes:guard`, `pnpm hermes:overnight`, `pnpm hermes:overnight:dry-run`
+- Composer bridge: `cursor agent --print --mode plan` (requires `cursor agent login` or `CURSOR_API_KEY`)
+- Queue: `tasks/overnight.queue.json` → reports in `tasks/reports/`
+
+First supervised live overnight run recommended before unattended use. Dry-run report `tasks/reports/overnight-20260613.md` blocked on Composer diff parsing.
 
 ## Mission
 
@@ -77,37 +113,10 @@ AgentDeck should make one thing obvious:
 
 The first release is **observability + controlled chat routing**, not full autonomous orchestration.
 
-## ChatGPT submission (ready to test)
-
-- Import file: `chatgpt-app-submission.json` (read-only v1 profile, 7 tools)
-- Guide: `docs/chatgpt-app-submission.md`
-- Test prompts: `docs/chatgpt-test-prompts.md`
-- Validate: `./scripts/validate-chatgpt-submission.sh`
-- Tunnel smoke: `./scripts/smoke-chatgpt-tunnel.sh` (19 checks; requires AgentDeck + tunnel running)
-- Tunnel helper: `scripts/run-chatgpt-mcp-tunnel.sh`
-- Tunnel UI: MCP view → Start tunnel → Open operator UI
-
-**Operator checklist (needs human in ChatGPT):**
-
-1. Launch AgentDeck.app
-2. Confirm tunnel connected (smoke test green)
-3. Run positive prompts from `docs/chatgpt-test-prompts.md` (health → agents → MCP → audit → graph → combined → scan → handoff)
-4. Run negative prompts; confirm AgentDeck is **not** invoked
-5. Submit via [platform.openai.com/apps](https://platform.openai.com/apps) using tunnel URL + `chatgpt-app-submission.json`
-
-## Overnight autonomy (Hermes — implemented, uncommitted)
-
-- Policy: `docs/autonomy-policy.md`
-- Operator guide: `HERMES.md`
-- Verification: `docs/verification.md` (`pnpm verify`, §18 enablement)
-- CLI: `pnpm hermes:guard`, `pnpm hermes:overnight`, `pnpm hermes:overnight:dry-run`
-- Composer bridge: `cursor agent --print --mode plan` (requires `cursor agent login` or `CURSOR_API_KEY`)
-- Queue: `tasks/overnight.queue.json` → reports in `tasks/reports/`
-
-First supervised live overnight run recommended before unattended use.
-
 ## Next candidates
 
-1. **You:** ChatGPT manual prompt test + Platform dashboard submission
-2. **You:** Review + commit Hermes/overnight autonomy work (on `main`, uncommitted)
-3. Phase 12 complete — project-aware onboarding + Claude Code MCP serve export (uncommitted with Hermes work)
+1. **Wait for ChatGPT review** → Publish v1.0.0 when Approved
+2. **v0.1.6 release** — ship committed `outputSchema` / `structuredContent` in notarized DMG
+3. **Hermes** — supervised overnight run; fix Composer unified-diff parsing
+4. **ChatGPT write-tools follow-up** — richer schemas + approval UX for deferred MCP tools
+5. **Core product** — handoff router automation, activity UX, webhooks

@@ -13,6 +13,7 @@ use crate::models::{
     AuditEventRecord, DiscoveredEntity, EnvironmentScan, GraphEdge, GraphNode, GraphSnapshot,
     HandoffRequest, HandoffRun, McpToggleResult, SkillExecutionRecord,
 };
+use crate::mcp_output_schemas;
 use crate::permissions;
 use crate::storage;
 use crate::xai_research;
@@ -244,7 +245,7 @@ fn handle_tool_call(
     }
 
     match execute_agentdeck_tool(tool_name, arguments) {
-        Ok((text, is_error)) => Ok(tool_content_from_text(&text, is_error)),
+        Ok((payload, is_error)) => Ok(tool_content_from_payload(&payload, is_error)),
         Err(message) => Err(jsonrpc_error(
             request_id,
             -32603,
@@ -293,7 +294,7 @@ pub fn truncate_tool_response(value: Value, notice: &str) -> Value {
     next
 }
 
-pub fn execute_agentdeck_tool(tool_name: &str, arguments: Value) -> Result<(String, bool), String> {
+pub fn execute_agentdeck_tool(tool_name: &str, arguments: Value) -> Result<(Value, bool), String> {
     let caller = caller_agent_id(&arguments);
     let database_path = database_path()?;
     let connection = storage::open_database(&database_path)?;
@@ -347,9 +348,7 @@ pub fn execute_agentdeck_tool(tool_name: &str, arguments: Value) -> Result<(Stri
     let is_error = tool_name == "agentdeck.get_run"
         && value.get("run").is_some_and(Value::is_null)
         && value.get("message").is_some();
-    let text = serde_json::to_string_pretty(&value)
-        .map_err(|error| format!("failed to encode tool result: {error}"))?;
-    Ok((text, is_error))
+    Ok((value, is_error))
 }
 
 fn caller_agent_id(arguments: &Value) -> String {
@@ -386,6 +385,21 @@ fn toggle_mcp_server_tool(arguments: Value) -> Result<McpToggleResult, String> {
         .ok_or_else(|| "enabled is required".to_owned())?;
     storage::validate_identifier("server ID", server_id)?;
     mcp::toggle_server_config(server_id, enabled)
+}
+
+fn tool_content_from_payload(payload: &Value, is_error: bool) -> Value {
+    let text = serde_json::to_string_pretty(payload)
+        .unwrap_or_else(|_| payload.to_string());
+    json!({
+        "structuredContent": payload,
+        "content": [
+            {
+                "type": "text",
+                "text": text,
+            }
+        ],
+        "isError": is_error,
+    })
 }
 
 fn tool_content_from_text(text: &str, is_error: bool) -> Value {
@@ -441,30 +455,35 @@ fn tools_list_all() -> Vec<Value> {
             "agentdeck.scan_environment",
             "Return the current local environment scan, including tools, providers, processes, configs, and entities.",
             json!({"type":"object","properties":{}}),
+            mcp_output_schemas::scan_environment(),
             true,
         ),
         tool_definition(
             "agentdeck.get_graph",
             "Return a graph snapshot derived from the current environment scan.",
             json!({"type":"object","properties":{}}),
+            mcp_output_schemas::get_graph(),
             true,
         ),
         tool_definition(
             "agentdeck.list_agents",
             "Return the discovered local agents from the current environment scan.",
             json!({"type":"object","properties":{}}),
+            mcp_output_schemas::list_agents(),
             true,
         ),
         tool_definition(
             "agentdeck.list_mcp_servers",
             "Return the read-only MCP inventory for local config files.",
             json!({"type":"object","properties":{}}),
+            mcp_output_schemas::list_mcp_servers(),
             true,
         ),
         tool_definition(
             "agentdeck.health_check",
             "Run the local preflight checks and return readiness status.",
             json!({"type":"object","properties":{}}),
+            mcp_output_schemas::health_check(),
             true,
         ),
         tool_definition(
@@ -481,6 +500,7 @@ fn tools_list_all() -> Vec<Value> {
                 },
                 "additionalProperties": false
             }),
+            mcp_output_schemas::get_run(),
             true,
         ),
         tool_definition(
@@ -494,6 +514,7 @@ fn tools_list_all() -> Vec<Value> {
                 },
                 "additionalProperties": false
             }),
+            mcp_output_schemas::search_audit_log(),
             true,
         ),
         tool_definition_open_world(
@@ -508,6 +529,7 @@ fn tools_list_all() -> Vec<Value> {
                 "required": ["query"],
                 "additionalProperties": false
             }),
+            mcp_output_schemas::xai_research(),
         ),
         tool_definition_open_world(
             "agentdeck.xai_research_answer_with_sources",
@@ -521,6 +543,7 @@ fn tools_list_all() -> Vec<Value> {
                 "required": ["question"],
                 "additionalProperties": false
             }),
+            mcp_output_schemas::xai_research(),
         ),
         tool_definition_open_world(
             "agentdeck.xai_research_summarize_url",
@@ -535,6 +558,7 @@ fn tools_list_all() -> Vec<Value> {
                 "required": ["url"],
                 "additionalProperties": false
             }),
+            mcp_output_schemas::xai_research(),
         ),
         tool_definition(
             "agentdeck.dispatch_handoff",
@@ -570,6 +594,7 @@ fn tools_list_all() -> Vec<Value> {
                 ],
                 "additionalProperties": false
             }),
+            mcp_output_schemas::dispatch_handoff(),
             false,
         ),
         tool_definition(
@@ -584,6 +609,7 @@ fn tools_list_all() -> Vec<Value> {
                 "required": ["skillId"],
                 "additionalProperties": false
             }),
+            mcp_output_schemas::execute_skill(),
             false,
         ),
         tool_definition(
@@ -599,6 +625,7 @@ fn tools_list_all() -> Vec<Value> {
                 "required": ["serverId", "enabled"],
                 "additionalProperties": false
             }),
+            mcp_output_schemas::toggle_mcp_server(),
             false,
         ),
     ]
@@ -608,12 +635,14 @@ fn tool_definition(
     name: &str,
     description: &str,
     input_schema: Value,
+    output_schema: Value,
     read_only: bool,
 ) -> Value {
     json!({
         "name": name,
         "description": description,
         "inputSchema": input_schema,
+        "outputSchema": output_schema,
         "annotations": {
             "readOnlyHint": read_only,
             "openWorldHint": false,
@@ -622,11 +651,17 @@ fn tool_definition(
     })
 }
 
-fn tool_definition_open_world(name: &str, description: &str, input_schema: Value) -> Value {
+fn tool_definition_open_world(
+    name: &str,
+    description: &str,
+    input_schema: Value,
+    output_schema: Value,
+) -> Value {
     json!({
         "name": name,
         "description": description,
         "inputSchema": input_schema,
+        "outputSchema": output_schema,
         "annotations": {
             "readOnlyHint": true,
             "openWorldHint": true,
@@ -988,6 +1023,31 @@ mod tests {
         assert!(names.contains(&"agentdeck.dispatch_handoff"));
         assert!(names.contains(&"agentdeck.execute_skill"));
         assert!(names.contains(&"agentdeck.toggle_mcp_server"));
+    }
+
+    #[test]
+    fn tool_results_include_structured_content() {
+        let payload = json!({ "ready": true, "checkedAt": "2026-06-14T00:00:00Z" });
+        let result = tool_content_from_payload(&payload, false);
+        assert_eq!(result["structuredContent"], payload);
+        assert!(result["content"][0]["text"].is_string());
+        assert_eq!(result["isError"], false);
+    }
+
+    #[test]
+    fn every_tool_exposes_output_schema() {
+        for tool in tools_list(McpToolProfile::Full) {
+            let name = tool
+                .get("name")
+                .and_then(Value::as_str)
+                .expect("tool name");
+            assert!(
+                tool.get("outputSchema")
+                    .and_then(Value::as_object)
+                    .is_some_and(|schema| !schema.is_empty()),
+                "{name} must include a non-empty outputSchema"
+            );
+        }
     }
 
     #[test]
