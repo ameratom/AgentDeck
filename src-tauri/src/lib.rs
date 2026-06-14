@@ -1,5 +1,6 @@
 pub mod autonomy;
 mod commands;
+mod chatgpt_review;
 mod connector_bridge;
 mod router;
 pub mod mcp_http;
@@ -84,6 +85,7 @@ pub fn run() {
             commands::connectors::start_secure_tunnel,
             commands::connectors::stop_secure_tunnel,
             commands::connectors::open_secure_tunnel_ui,
+            commands::connectors::chatgpt_review_health,
             commands::agent_permissions::load_agent_permissions,
             commands::agent_permissions::set_agent_permission,
             commands::plugins::load_plugin_inventory,

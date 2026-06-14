@@ -1,6 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useState } from "react";
 import {
+  chatgptReviewHealth,
   grokMcpBridgeStatus,
   loadProjectConnectorSettings,
   openSecureTunnelUi,
@@ -13,12 +14,19 @@ import {
   toggleMcpServer,
 } from "../../lib/invoke";
 import type {
+  ChatgptReviewHealth,
   GrokMcpBridgeStatus,
   McpInventory,
   McpToggleResult,
   ProjectConnectorSettings,
   SecureTunnelStatus,
 } from "../../lib/types";
+import {
+  operationalChecks,
+  reviewCheckClass,
+  reviewReadyClass,
+  reviewReadyLabel,
+} from "./chatgptReviewModel";
 import { canToggleServer, existingSources, riskCounts } from "./mcpModel";
 
 export function McpView() {
@@ -37,6 +45,10 @@ export function McpView() {
   const [tunnelAction, setTunnelAction] = useState<
     "refresh" | "start" | "stop" | "open" | null
   >(null);
+  const [reviewHealth, setReviewHealth] = useState<ChatgptReviewHealth | null>(
+    null,
+  );
+  const [reviewRefreshing, setReviewRefreshing] = useState(false);
   const [projectConnectors, setProjectConnectors] =
     useState<ProjectConnectorSettings | null>(null);
   const [savingProjectConnectors, setSavingProjectConnectors] = useState(false);
@@ -94,6 +106,19 @@ export function McpView() {
     }
   }
 
+  async function refreshReviewHealth(): Promise<void> {
+    setReviewRefreshing(true);
+    try {
+      const nextHealth = await chatgptReviewHealth();
+      setReviewHealth(nextHealth);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      setStatus(`ChatGPT review health check failed: ${detail}`);
+    } finally {
+      setReviewRefreshing(false);
+    }
+  }
+
   async function updateTunnel(
     action: "refresh" | "start" | "stop" | "open",
   ): Promise<void> {
@@ -118,6 +143,9 @@ export function McpView() {
               : await secureTunnelStatus();
       setTunnelStatus(nextStatus);
       setStatus(nextStatus.detail);
+      if (action === "start" || action === "refresh") {
+        await refreshReviewHealth();
+      }
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       const message = `Secure tunnel ${action} failed: ${detail}`;
@@ -164,17 +192,19 @@ export function McpView() {
 
     async function load(): Promise<void> {
       try {
-        const [nextInventory, nextBridgeStatus, nextTunnelStatus, nextProjectConnectors] = await Promise.all([
+        const [nextInventory, nextBridgeStatus, nextTunnelStatus, nextProjectConnectors, nextReviewHealth] = await Promise.all([
           scanMcpInventory(),
           grokMcpBridgeStatus(),
           secureTunnelStatus(),
           loadProjectConnectorSettings().catch(() => null),
+          chatgptReviewHealth().catch(() => null),
         ]);
         if (!cancelled) {
           setInventory(nextInventory);
           setBridgeStatus(nextBridgeStatus);
           setTunnelStatus(nextTunnelStatus);
           setProjectConnectors(nextProjectConnectors);
+          setReviewHealth(nextReviewHealth);
           setStatus(
             `Found ${nextInventory.servers.length} server definitions across ${
               existingSources(nextInventory.sources).length
@@ -437,6 +467,85 @@ export function McpView() {
           </button>
         </section>
       ) : null}
+
+      <section className="chatgpt-review-panel" aria-label="ChatGPT app review readiness">
+        <div className="mcp-tunnel-heading">
+          <div>
+            <p className="eyebrow">ChatGPT submission</p>
+            <h3>Review readiness</h3>
+            <p>
+              While OpenAI reviews version 1.0.0, keep AgentDeck and the Secure
+              MCP Tunnel running. Publishing stays blocked until status becomes
+              Approved.
+            </p>
+          </div>
+          <span
+            className={
+              reviewHealth ? reviewReadyClass(reviewHealth) : "chatgpt-review-state pending"
+            }
+          >
+            {reviewHealth ? reviewReadyLabel(reviewHealth) : "Checking..."}
+          </span>
+        </div>
+        <dl>
+          <Detail
+            label="Platform status"
+            value={reviewHealth?.platformStatus ?? "REVIEW"}
+          />
+          <Detail
+            label="Publish"
+            value={
+              reviewHealth?.publishAllowed
+                ? "Allowed"
+                : reviewHealth?.publishBlockedReason ?? "Awaiting OpenAI approval"
+            }
+          />
+          <Detail
+            label="Submission tools"
+            value={
+              reviewHealth
+                ? `${reviewHealth.submissionToolCount} read-only tools`
+                : "Checking local MCP profile..."
+            }
+          />
+          <Detail
+            label="Public MCP URL"
+            value={reviewHealth?.publicMcpUrl ?? "Set MCP_PUBLIC_RESOURCE_URL in tunnel env"}
+          />
+          <Detail
+            label="Last checked"
+            value={reviewHealth?.checkedAt ?? "Not checked yet"}
+          />
+        </dl>
+        {reviewHealth ? (
+          <ul className="chatgpt-review-checks">
+            {operationalChecks(reviewHealth).map((check) => (
+              <li className={reviewCheckClass(check)} key={check.id}>
+                <span>{check.label}</span>
+                <small>{check.detail}</small>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        <div className="mcp-tunnel-actions">
+          <button
+            className="secondary-button"
+            disabled={reviewRefreshing}
+            onClick={() => void refreshReviewHealth()}
+            type="button"
+          >
+            {reviewRefreshing ? "Checking..." : "Run review checks"}
+          </button>
+          <a
+            className="chatgpt-review-link"
+            href="https://platform.openai.com/apps-manage"
+            rel="noreferrer"
+            target="_blank"
+          >
+            Open Apps dashboard
+          </a>
+        </div>
+      </section>
 
       <section className="mcp-tunnel-panel" aria-label="OpenAI Secure MCP Tunnel">
         <div className="mcp-tunnel-heading">

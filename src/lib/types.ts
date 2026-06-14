@@ -247,6 +247,24 @@ export interface SecureTunnelStatus {
   detail: string;
 }
 
+export interface ChatgptReviewCheck {
+  id: string;
+  label: string;
+  passed: boolean;
+  detail: string;
+}
+
+export interface ChatgptReviewHealth {
+  checkedAt: string;
+  platformStatus: string;
+  publishAllowed: boolean;
+  publishBlockedReason: string;
+  readyForReviewers: boolean;
+  submissionToolCount: number;
+  publicMcpUrl: string | null;
+  checks: ChatgptReviewCheck[];
+}
+
 export interface ProjectWorkspace {
   id: string;
   name: string;

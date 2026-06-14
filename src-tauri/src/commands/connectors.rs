@@ -1,5 +1,6 @@
 use tauri::AppHandle;
 
+use crate::chatgpt_review::{self, ChatgptReviewHealth};
 use crate::connector_bridge::{self, GrokMcpBridgeStatus};
 use crate::storage;
 use crate::tunnel_control::{self, TunnelStatus};
@@ -52,4 +53,12 @@ pub async fn open_secure_tunnel_ui(app: AppHandle) -> Result<TunnelStatus, Strin
     tauri::async_runtime::spawn_blocking(move || tunnel_control::open_operator_ui(&database_path))
         .await
         .map_err(|error| format!("secure tunnel operator UI task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn chatgpt_review_health(app: AppHandle) -> Result<ChatgptReviewHealth, String> {
+    let database_path = storage::database_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || chatgpt_review::evaluate_review_health(&database_path))
+        .await
+        .map_err(|error| format!("chatgpt review health task failed: {error}"))?
 }

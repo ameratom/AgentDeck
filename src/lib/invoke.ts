@@ -14,6 +14,7 @@ import type {
   McpInventory,
   McpToggleResult,
   ProjectConnectorSettings,
+  ChatgptReviewHealth,
   GrokMcpBridgeStatus,
   SecureTunnelStatus,
   RouterRuleMatrix,
@@ -154,6 +155,10 @@ export function stopSecureTunnel(): Promise<SecureTunnelStatus> {
 
 export function openSecureTunnelUi(): Promise<SecureTunnelStatus> {
   return invoke<SecureTunnelStatus>("open_secure_tunnel_ui");
+}
+
+export function chatgptReviewHealth(): Promise<ChatgptReviewHealth> {
+  return invoke<ChatgptReviewHealth>("chatgpt_review_health");
 }
 
 export function listProjects(): Promise<ProjectWorkspaceList> {

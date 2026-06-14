@@ -450,6 +450,82 @@ fn tools_list(profile: McpToolProfile) -> Vec<Value> {
         .collect()
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubmissionProfileReport {
+    pub tool_count: usize,
+    pub tool_names: Vec<String>,
+    pub missing_from_manifest: Vec<String>,
+    pub unexpected_tools: Vec<String>,
+    pub missing_output_schema: Vec<String>,
+    pub deferred_tools_exposed: Vec<String>,
+    pub non_read_only_tools: Vec<String>,
+}
+
+pub fn evaluate_submission_profile() -> SubmissionProfileReport {
+    const DEFERRED_WRITE_TOOLS: [&str; 3] = [
+        "agentdeck.dispatch_handoff",
+        "agentdeck.execute_skill",
+        "agentdeck.toggle_mcp_server",
+    ];
+
+    let tools = tools_list(McpToolProfile::ReadOnlyV1_1);
+    let manifest = chatgpt_submission_tool_names();
+    let mut tool_names = Vec::new();
+    let mut missing_output_schema = Vec::new();
+    let mut non_read_only_tools = Vec::new();
+
+    for tool in &tools {
+        let Some(name) = tool.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        tool_names.push(name.to_owned());
+        if tool
+            .get("outputSchema")
+            .and_then(Value::as_object)
+            .is_none_or(|schema| schema.is_empty())
+        {
+            missing_output_schema.push(name.to_owned());
+        }
+        let read_only = tool
+            .get("annotations")
+            .and_then(|value| value.get("readOnlyHint"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if !read_only {
+            non_read_only_tools.push(name.to_owned());
+        }
+    }
+
+    tool_names.sort();
+
+    let exposed = tool_names.iter().cloned().collect::<BTreeSet<_>>();
+    let missing_from_manifest = manifest
+        .iter()
+        .filter(|name| !exposed.contains(name.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    let unexpected_tools = exposed
+        .iter()
+        .filter(|name| !manifest.contains(name.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    let deferred_tools_exposed = DEFERRED_WRITE_TOOLS
+        .iter()
+        .filter(|name| tool_names.iter().any(|tool| tool == *name))
+        .map(|name| (*name).to_owned())
+        .collect::<Vec<_>>();
+
+    SubmissionProfileReport {
+        tool_count: tool_names.len(),
+        tool_names,
+        missing_from_manifest,
+        unexpected_tools,
+        missing_output_schema,
+        deferred_tools_exposed,
+        non_read_only_tools,
+    }
+}
+
 fn tools_list_all() -> Vec<Value> {
     vec![
         tool_definition(
