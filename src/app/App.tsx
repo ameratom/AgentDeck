@@ -55,6 +55,7 @@ type NavigateViewPayload =
   | {
       view: View;
       runIndex?: string | number;
+      runId?: string;
     };
 
 export default function App() {
@@ -66,6 +67,9 @@ export default function App() {
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [handoffRunIndex, setHandoffRunIndex] = useState<number | null>(null);
+  const [handoffHighlightRunId, setHandoffHighlightRunId] = useState<string | null>(
+    null,
+  );
   const scan = isEnvironmentScan(result) ? result : null;
 
   async function execute(
@@ -167,11 +171,21 @@ export default function App() {
         view === "Settings"
       ) {
         setActiveView(view);
-        if (view === "Handoffs" && typeof payload !== "string" && payload.runIndex !== undefined) {
-          const parsed = Number(payload.runIndex);
-          setHandoffRunIndex(Number.isNaN(parsed) ? null : parsed);
+        if (view === "Handoffs" && typeof payload !== "string") {
+          if (payload.runId) {
+            setHandoffHighlightRunId(payload.runId);
+            setHandoffRunIndex(null);
+          } else if (payload.runIndex !== undefined) {
+            const parsed = Number(payload.runIndex);
+            setHandoffRunIndex(Number.isNaN(parsed) ? null : parsed);
+            setHandoffHighlightRunId(null);
+          } else {
+            setHandoffRunIndex(null);
+            setHandoffHighlightRunId(null);
+          }
         } else {
           setHandoffRunIndex(null);
+          setHandoffHighlightRunId(null);
         }
         void getCurrentWindow()
           .show()
@@ -222,7 +236,17 @@ export default function App() {
       item === "Settings"
     ) {
       setActiveView(item);
+      if (item !== "Handoffs") {
+        setHandoffRunIndex(null);
+        setHandoffHighlightRunId(null);
+      }
     }
+  }
+
+  function openHandoffRun(runId: string): void {
+    setHandoffHighlightRunId(runId);
+    setHandoffRunIndex(null);
+    setActiveView("Handoffs");
   }
 
   return (
@@ -278,6 +302,7 @@ export default function App() {
         />
       ) : activeView === "Handoffs" ? (
         <HandoffView
+          highlightRunId={handoffHighlightRunId}
           highlightRunIndex={handoffRunIndex}
           scan={scan}
           onOpenProviders={() => navigate("Providers")}
@@ -310,7 +335,7 @@ export default function App() {
           scan={scan}
         />
       ) : activeView === "Activity" ? (
-        <AuditView />
+        <AuditView onOpenHandoffRun={openHandoffRun} />
       ) : null}
 
       {showOnboarding ? (

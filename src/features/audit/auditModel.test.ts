@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { AuditEventRecord } from "../../lib/types";
 import {
   auditStatusClass,
+  canOpenHandoffRun,
   formatAuditDuration,
   formatAuditTimestamp,
   hasMoreAuditEvents,
+  isHandoffAuditAction,
   mergeAuditEvents,
 } from "./auditModel";
 
@@ -33,6 +35,20 @@ describe("audit model helpers", () => {
   it("maps audit status classes", () => {
     expect(auditStatusClass("completed")).toBe("audit-status completed");
     expect(auditStatusClass("failed")).toBe("audit-status failed");
+  });
+
+  it("detects handoff audit rows that can open stored runs", () => {
+    expect(isHandoffAuditAction("handoff.dispatch")).toBe(true);
+    expect(isHandoffAuditAction("skill.execute")).toBe(false);
+    expect(
+      canOpenHandoffRun({
+        ...event("audit:42", "handoff.dispatch", "completed", "grok-4.3"),
+        runId: "run:abc",
+      }),
+    ).toBe(true);
+    expect(
+      canOpenHandoffRun(event("audit:42", "handoff.dispatch", "completed", "grok-4.3")),
+    ).toBe(false);
   });
 
   it("tracks pagination and merges unique rows", () => {

@@ -3,6 +3,7 @@ import { loadAuditEvents } from "../../lib/invoke";
 import type { AuditEventRecord } from "../../lib/types";
 import {
   auditStatusClass,
+  canOpenHandoffRun,
   formatAuditDuration,
   formatAuditTimestamp,
   hasMoreAuditEvents,
@@ -11,7 +12,11 @@ import {
 
 const PAGE_SIZE = 25;
 
-export function AuditView() {
+interface AuditViewProps {
+  onOpenHandoffRun?: (runId: string) => void;
+}
+
+export function AuditView({ onOpenHandoffRun }: AuditViewProps) {
   const [events, setEvents] = useState<AuditEventRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
@@ -84,7 +89,7 @@ export function AuditView() {
           <h2>Audit Log</h2>
           <p>
             Timestamped feed of handoff runs, skill executions, and scan-related
-            actions.
+            actions. Handoff dispatch rows link to stored runs when available.
           </p>
         </div>
         <span className="phase-badge">Read-only</span>
@@ -120,6 +125,7 @@ export function AuditView() {
           <span>Status</span>
           <span>Model</span>
           <span>Duration</span>
+          <span>Handoff</span>
         </div>
 
         {events.length === 0 ? (
@@ -136,6 +142,19 @@ export function AuditView() {
               </span>
               <span>{event.model || "—"}</span>
               <span>{formatAuditDuration(event.durationMs)}</span>
+              <span>
+                {canOpenHandoffRun(event) && event.runId ? (
+                  <button
+                    className="audit-run-link"
+                    onClick={() => onOpenHandoffRun?.(event.runId!)}
+                    type="button"
+                  >
+                    View run
+                  </button>
+                ) : (
+                  "—"
+                )}
+              </span>
             </div>
           ))
         )}

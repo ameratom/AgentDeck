@@ -1,5 +1,13 @@
 import type { AuditEventRecord } from "../../lib/types";
 
+export function isHandoffAuditAction(action: string): boolean {
+  return action.startsWith("handoff.");
+}
+
+export function canOpenHandoffRun(event: AuditEventRecord): boolean {
+  return isHandoffAuditAction(event.action) && Boolean(event.runId);
+}
+
 export function formatAuditTimestamp(value: string): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {

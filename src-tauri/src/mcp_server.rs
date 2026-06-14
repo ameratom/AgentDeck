@@ -861,16 +861,7 @@ fn load_audit_events(
         collected
     };
 
-    for record in &mut records {
-        if record.action == "handoff.dispatch" {
-            record.run_id = storage::lookup_handoff_run_id_by_audit_ref(connection, &record.id)?
-                .or_else(|| {
-                    storage::lookup_handoff_run_id_by_thread_id(connection, &record.conversation_id)
-                        .ok()
-                        .flatten()
-                });
-        }
-    }
+    storage::enrich_audit_events_with_run_ids(connection, &mut records)?;
 
     Ok(records)
 }

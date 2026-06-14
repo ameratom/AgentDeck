@@ -1201,7 +1201,9 @@ pub fn query_audit_events(
         .map(str::trim)
         .filter(|value| !value.is_empty());
     let total = count_audit_events(connection, filter)?;
-    let events = load_audit_events_page(connection, limit, offset, filter)?;
+    let mut events = load_audit_events_page(connection, limit, offset, filter)?;
+
+    enrich_audit_events_with_run_ids(connection, &mut events)?;
 
     Ok(AuditEventsPage {
         events,
@@ -1209,6 +1211,24 @@ pub fn query_audit_events(
         limit,
         offset,
     })
+}
+
+pub fn enrich_audit_events_with_run_ids(
+    connection: &Connection,
+    events: &mut [AuditEventRecord],
+) -> Result<(), String> {
+    for record in events.iter_mut() {
+        if !record.action.starts_with("handoff.") {
+            continue;
+        }
+        record.run_id = lookup_handoff_run_id_by_audit_ref(connection, &record.id)?
+            .or_else(|| {
+                lookup_handoff_run_id_by_thread_id(connection, &record.conversation_id)
+                    .ok()
+                    .flatten()
+            });
+    }
+    Ok(())
 }
 
 fn count_audit_events(
@@ -1443,6 +1463,65 @@ mod storage_tests {
         let value = "a".repeat(MAX_IDENTIFIER_CHARS + 1);
         assert!(validate_identifier("test ID", &value).is_err());
         assert!(validate_identifier("test ID", &"a".repeat(MAX_IDENTIFIER_CHARS)).is_ok());
+    }
+
+    #[test]
+    fn enrich_audit_events_links_handoff_dispatch_rows_to_runs() {
+        let path = std::env::temp_dir().join(format!(
+            "agentdeck-audit-run-link-{}.sqlite3",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        let connection = open_database(&path).expect("open database");
+        connection
+            .execute(
+                "INSERT INTO audit_events
+                 (id, action, status, model, conversation_id, duration_ms, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params![
+                    "audit:handoff-1",
+                    "handoff.dispatch",
+                    "completed",
+                    "grok-4.3",
+                    "thread:handoff-1",
+                    1200_i64,
+                    "2026-06-14T12:00:00Z"
+                ],
+            )
+            .expect("insert audit event");
+        connection
+            .execute(
+                "INSERT INTO handoff_runs
+                 (id, project_id, thread_id, source_agent_id, source_agent_name,
+                  target_provider_id, target_provider_name, target_model_id,
+                  title, task, context, status, output, error, approvals,
+                  audit_ref, created_at, updated_at)
+                 VALUES (?1, NULL, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, NULL, ?13, ?14, ?15, ?16)",
+                rusqlite::params![
+                    "run:linked",
+                    "thread:handoff-1",
+                    "agent:codex",
+                    "Codex",
+                    "provider:xai:grok",
+                    "xAI Grok",
+                    "grok-4.3",
+                    "Review handoff",
+                    "Summarize next steps",
+                    "",
+                    "completed",
+                    "done",
+                    "[\"user-approved\"]",
+                    "audit:handoff-1",
+                    "2026-06-14T12:00:00Z",
+                    "2026-06-14T12:00:01Z"
+                ],
+            )
+            .expect("insert handoff run");
+
+        let page = query_audit_events(&connection, 10, 0, None).expect("audit page");
+        assert_eq!(page.events.len(), 1);
+        assert_eq!(page.events[0].run_id.as_deref(), Some("run:linked"));
+
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

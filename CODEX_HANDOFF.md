@@ -8,7 +8,7 @@ Build folder:
 
 Remote: `https://github.com/ameratom/AgentDeck` (`main`)
 
-Latest release: [v0.1.5](https://github.com/ameratom/AgentDeck/releases/tag/v0.1.5)
+Latest release: [v0.1.6](https://github.com/ameratom/AgentDeck/releases/tag/v0.1.6) (tag pending — local `0.1.6` ready, notarized DMG not built yet)
 
 ## Current Status (June 2026)
 
@@ -36,7 +36,7 @@ Phases **0–13** are complete. ChatGPT app **v1.0.0** is **in review** (not pub
 | Read-only ChatGPT MCP profile (`read_only_v1_1`, 10 tools) | ✔ |
 | MCP `outputSchema` + `structuredContent` on tool results | ✔ |
 | Hermes overnight autonomy (CLI + policy) | ✔ |
-| Signed + notarized macOS DMG | ✔ v0.1.5 |
+| Signed + notarized macOS DMG | ✔ v0.1.5 (v0.1.6 bump local; notarize pending) |
 
 ### Project MCP config (`.mcp.json`)
 
@@ -59,7 +59,7 @@ pnpm test:xai-research-mcp
 source scripts/notarize.local.env
 pnpm tauri build
 ./scripts/notarize-macos.sh
-./scripts/create-github-release.sh v0.1.5
+./scripts/create-github-release.sh v0.1.6
 ```
 
 ### ChatGPT tunnel
@@ -116,7 +116,7 @@ The first release is **observability + controlled chat routing**, not full auton
 ## Next candidates
 
 1. **Wait for ChatGPT review** → Publish v1.0.0 when Approved
-2. **v0.1.6 release** — ship committed `outputSchema` / `structuredContent` in notarized DMG
-3. **Hermes** — supervised overnight run; fix Composer unified-diff parsing
-4. **ChatGPT write-tools follow-up** — richer schemas + approval UX for deferred MCP tools
-5. **Core product** — handoff router automation, activity UX, webhooks
+2. **Notarize v0.1.6** — `pnpm tauri build` + `./scripts/notarize-macos.sh` + GitHub release
+3. **Hermes** — supervised overnight run with live `CURSOR_API_KEY` / `cursor agent login`
+4. **ChatGPT write-tools follow-up** — second submission with deferred MCP tools
+5. **Core product** — handoff router automation, webhooks

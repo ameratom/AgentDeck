@@ -32,6 +32,7 @@ import {
 
 interface HandoffViewProps {
   scan: EnvironmentScan | null;
+  highlightRunId?: string | null;
   highlightRunIndex?: number | null;
   onOpenProviders: () => void;
   onRefreshScan: () => void;
@@ -52,6 +53,7 @@ interface RouteSuggestionResult {
 
 export function HandoffView({
   scan,
+  highlightRunId = null,
   highlightRunIndex = null,
   onOpenProviders,
   onRefreshScan,
@@ -112,6 +114,15 @@ export function HandoffView({
   const scopedRuns = runs.filter(
     (run) => run.projectId === (activeProject?.id ?? null),
   );
+  const highlightedRunIndex = useMemo(() => {
+    if (highlightRunId) {
+      const index = scopedRuns.findIndex((run) => run.id === highlightRunId);
+      if (index >= 0) {
+        return index;
+      }
+    }
+    return highlightRunIndex;
+  }, [highlightRunId, highlightRunIndex, scopedRuns]);
 
   const refreshProviderModels = useCallback(async (
     providerId: string,
@@ -620,13 +631,13 @@ export function HandoffView({
               scopedRuns.map((run, index) => (
                 <article
                   className={
-                    highlightRunIndex === index
+                    highlightedRunIndex === index
                       ? "handoff-run-card highlighted"
                       : "handoff-run-card"
                   }
                   key={run.id}
                   ref={(element) => {
-                    if (highlightRunIndex === index && element) {
+                    if (highlightedRunIndex === index && element) {
                       element.scrollIntoView({ block: "nearest", behavior: "smooth" });
                     }
                   }}

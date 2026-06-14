@@ -407,6 +407,7 @@ export interface AuditEventRecord {
   status: string;
   model: string;
   conversationId: string;
+  runId?: string;
   durationMs: number;
   createdAt: string;
 }
