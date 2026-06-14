@@ -11,6 +11,7 @@ use serde::Serialize;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
 use crate::storage;
+use crate::tool_path;
 
 const CONFIG_FILE_NAME: &str = "chatgpt-mcp-tunnel.env";
 const DEFAULT_MCP_URL: &str = "http://127.0.0.1:7823/mcp";
@@ -41,13 +42,17 @@ pub fn status(database_path: &Path) -> Result<TunnelStatus, String> {
     let paths = tunnel_paths(database_path)?;
     let config = load_config(&paths.config).unwrap_or_default();
     let configured = config_is_ready(&config);
-    let pid = read_pid(&paths.pid).filter(|pid| tunnel_process_running(*pid));
+    let managed_pid = read_pid(&paths.pid).filter(|pid| tunnel_process_running(*pid));
     let admin_base =
         read_health_url(&paths.health_url).unwrap_or_else(|| DEFAULT_HEALTH_URL.to_owned());
-    let ready = pid.is_some() && endpoint_ready(&format!("{admin_base}/readyz"));
-    let detail = if ready {
+    let health_ready = endpoint_ready(&format!("{admin_base}/readyz"));
+    let managed = managed_pid.is_some();
+    let ready = health_ready;
+    let detail = if ready && managed {
         "OpenAI Secure MCP Tunnel is connected and ready.".to_owned()
-    } else if pid.is_some() {
+    } else if ready {
+        "Tunnel is ready on 127.0.0.1:8081 via an external tunnel-client process. AgentDeck does not manage that PID. Stop the external tunnel, then use Start tunnel here to manage it from the app.".to_owned()
+    } else if managed {
         "Tunnel process is running but is not ready yet. Check the operator UI or log.".to_owned()
     } else if configured {
         "Tunnel configuration is ready. Start it when ChatGPT needs local MCP access.".to_owned()
@@ -60,11 +65,15 @@ pub fn status(database_path: &Path) -> Result<TunnelStatus, String> {
 
     Ok(TunnelStatus {
         configured,
-        running: pid.is_some(),
+        running: managed,
         ready,
-        pid,
+        pid: managed_pid,
         config_path: paths.config.display().to_string(),
-        admin_url: pid.map(|_| format!("{admin_base}/ui")),
+        admin_url: if ready {
+            Some(format!("{admin_base}/ui"))
+        } else {
+            managed_pid.map(|_| format!("{admin_base}/ui"))
+        },
         log_path: paths.log.display().to_string(),
         detail,
     })
@@ -73,8 +82,13 @@ pub fn status(database_path: &Path) -> Result<TunnelStatus, String> {
 pub fn start(database_path: &Path) -> Result<TunnelStatus, String> {
     let paths = tunnel_paths(database_path)?;
     let current = status(database_path)?;
-    if current.running {
+    if current.ready {
         return Ok(current);
+    }
+    if endpoint_ready(&format!("{DEFAULT_HEALTH_URL}/readyz")) {
+        return Err(
+            "Port 127.0.0.1:8081 is already in use by another tunnel-client process. Stop the external tunnel first, then click Start tunnel.".to_owned(),
+        );
     }
 
     let config = load_config(&paths.config)?;
@@ -91,10 +105,7 @@ pub fn start(database_path: &Path) -> Result<TunnelStatus, String> {
         .get("AGENTDECK_MCP_URL")
         .cloned()
         .unwrap_or_else(|| DEFAULT_MCP_URL.to_owned());
-    let binary = config
-        .get("TUNNEL_CLIENT_BIN")
-        .cloned()
-        .unwrap_or_else(|| "tunnel-client".to_owned());
+    let binary = resolve_tunnel_client_binary(&config, &paths.config)?;
 
     let mut command = Command::new(&binary);
     command
@@ -120,7 +131,12 @@ pub fn start(database_path: &Path) -> Result<TunnelStatus, String> {
 
     let child = command
         .spawn()
-        .map_err(|error| format!("failed to start {binary}: {error}"))?;
+        .map_err(|error| {
+            format!(
+                "failed to start {}: {error}",
+                binary.display()
+            )
+        })?;
     fs::write(&paths.pid, child.id().to_string())
         .map_err(|error| format!("failed to record tunnel PID: {error}"))?;
 
@@ -301,6 +317,40 @@ fn required_config<'a>(config: &'a BTreeMap<String, String>, key: &str) -> Resul
         .map(String::as_str)
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| format!("{key} is missing from tunnel configuration"))
+}
+
+fn resolve_tunnel_client_binary(
+    config: &BTreeMap<String, String>,
+    config_path: &Path,
+) -> Result<PathBuf, String> {
+    let configured = config
+        .get("TUNNEL_CLIENT_BIN")
+        .map(String::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("tunnel-client");
+    let candidate = PathBuf::from(configured);
+    if candidate.is_absolute() {
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+        return Err(format!(
+            "TUNNEL_CLIENT_BIN points to a missing file: {}",
+            candidate.display()
+        ));
+    }
+
+    let name = candidate
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or(configured);
+    tool_path::find_executable(name, &[])
+        .map(|resolved| resolved.path)
+        .ok_or_else(|| {
+            format!(
+                "tunnel-client not found for GUI launch. Install OpenAI tunnel-client or set TUNNEL_CLIENT_BIN to its full path (for example /usr/local/bin/tunnel-client) in {}",
+                config_path.display()
+            )
+        })
 }
 
 fn ensure_local_mcp_available() -> Result<(), String> {

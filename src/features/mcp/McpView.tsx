@@ -120,7 +120,13 @@ export function McpView() {
       setStatus(nextStatus.detail);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      setStatus(`Secure tunnel ${action} failed: ${detail}`);
+      const message = `Secure tunnel ${action} failed: ${detail}`;
+      setStatus(message);
+      setTunnelStatus((current) =>
+        current
+          ? { ...current, detail: message }
+          : current,
+      );
     } finally {
       setTunnelAction(null);
     }
@@ -485,7 +491,8 @@ export function McpView() {
             disabled={
               tunnelAction !== null ||
               !tunnelStatus?.configured ||
-              tunnelStatus.running
+              tunnelStatus.running ||
+              tunnelStatus.ready
             }
             onClick={() => void updateTunnel("start")}
             type="button"

@@ -1,5 +1,7 @@
+use std::collections::BTreeSet;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -20,6 +22,14 @@ const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 const DEFAULT_PROTOCOL_VERSION: &str = "2025-06-18";
 const LEGACY_PROTOCOL_VERSION: &str = "2025-03-26";
 const MAX_SEARCH_LIMIT: usize = 100;
+const CHATGPT_SUBMISSION_MANIFEST: &str =
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../chatgpt-app-submission.json"));
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum McpToolProfile {
+    Full,
+    ReadOnlyV1_1,
+}
 
 #[derive(Debug, Deserialize)]
 struct JsonRpcRequest {
@@ -86,17 +96,31 @@ pub fn run_stdio() -> Result<(), String> {
 }
 
 pub fn process_request_line(line: &str) -> Result<Option<Value>, String> {
+    process_request_line_with_profile(line, McpToolProfile::Full)
+}
+
+pub fn process_request_line_with_profile(
+    line: &str,
+    profile: McpToolProfile,
+) -> Result<Option<Value>, String> {
     let value: Value =
         serde_json::from_str(line).map_err(|error| format!("invalid JSON-RPC payload: {error}"))?;
-    process_request_value(value)
+    process_request_value_with_profile(value, profile)
 }
 
 pub fn process_request_value(value: Value) -> Result<Option<Value>, String> {
+    process_request_value_with_profile(value, McpToolProfile::Full)
+}
+
+pub fn process_request_value_with_profile(
+    value: Value,
+    profile: McpToolProfile,
+) -> Result<Option<Value>, String> {
     match value {
         Value::Array(items) => {
             let responses = items
                 .into_iter()
-                .filter_map(|item| handle_request(item))
+                .filter_map(|item| handle_request(item, profile))
                 .collect::<Vec<_>>();
             if responses.is_empty() {
                 Ok(None)
@@ -104,11 +128,11 @@ pub fn process_request_value(value: Value) -> Result<Option<Value>, String> {
                 Ok(Some(Value::Array(responses)))
             }
         }
-        other => Ok(handle_request(other)),
+        other => Ok(handle_request(other, profile)),
     }
 }
 
-fn handle_request(value: Value) -> Option<Value> {
+fn handle_request(value: Value, profile: McpToolProfile) -> Option<Value> {
     let request: JsonRpcRequest = match serde_json::from_value(value) {
         Ok(request) => request,
         Err(error) => {
@@ -123,11 +147,11 @@ fn handle_request(value: Value) -> Option<Value> {
 
     let request_id = request.id.clone();
     let result = match request.method.as_str() {
-        "initialize" => handle_initialize(request.params),
+        "initialize" => handle_initialize(request.params, profile),
         "notifications/initialized" => return None,
         "ping" => Ok(json!({})),
-        "tools/list" => Ok(json!({ "tools": tools_list() })),
-        "tools/call" => handle_tool_call(request.params, request_id.clone()),
+        "tools/list" => Ok(json!({ "tools": tools_list(profile) })),
+        "tools/call" => handle_tool_call(request.params, request_id.clone(), profile),
         other => Err(jsonrpc_error(
             request_id.clone(),
             -32601,
@@ -142,7 +166,7 @@ fn handle_request(value: Value) -> Option<Value> {
     })
 }
 
-fn handle_initialize(params: Option<Value>) -> Result<Value, Value> {
+fn handle_initialize(params: Option<Value>, profile: McpToolProfile) -> Result<Value, Value> {
     let client_version = params
         .as_ref()
         .and_then(|value| value.get("protocolVersion"))
@@ -157,6 +181,15 @@ fn handle_initialize(params: Option<Value>) -> Result<Value, Value> {
         DEFAULT_PROTOCOL_VERSION
     };
 
+    let instructions = match profile {
+        McpToolProfile::Full => {
+            "AgentDeck exposes local control plane tools. Write tools require callerAgentId and respect per-agent permissions."
+        }
+        McpToolProfile::ReadOnlyV1_1 => {
+            "AgentDeck exposes read-only local inspection tools plus xAI research helpers: agentdeck.xai_research_search_web, agentdeck.xai_research_answer_with_sources, and agentdeck.xai_research_summarize_url. Research tools require an xAI API key saved in AgentDeck Settings. Write tools are excluded from this ChatGPT connector profile."
+        }
+    };
+
     Ok(json!({
         "protocolVersion": negotiated_version,
         "capabilities": {
@@ -166,11 +199,15 @@ fn handle_initialize(params: Option<Value>) -> Result<Value, Value> {
             "name": SERVER_NAME,
             "version": SERVER_VERSION,
         },
-        "instructions": "AgentDeck exposes local control plane tools. Write tools require callerAgentId and respect per-agent permissions."
+        "instructions": instructions
     }))
 }
 
-fn handle_tool_call(params: Option<Value>, request_id: Option<Value>) -> Result<Value, Value> {
+fn handle_tool_call(
+    params: Option<Value>,
+    request_id: Option<Value>,
+    profile: McpToolProfile,
+) -> Result<Value, Value> {
     let Some(params) = params else {
         return Err(jsonrpc_error(
             request_id,
@@ -192,6 +229,19 @@ fn handle_tool_call(params: Option<Value>, request_id: Option<Value>) -> Result<
         .get("arguments")
         .cloned()
         .unwrap_or_else(|| json!({}));
+
+    if !tool_allowed_for_profile(profile, tool_name) {
+        return Err(jsonrpc_error(
+            request_id,
+            -32602,
+            "Invalid params",
+            Some(json!({
+                "message": format!(
+                    "tool {tool_name} is not exposed in the ChatGPT read-only connector profile; refresh the AgentDeck connector in ChatGPT Apps settings"
+                )
+            })),
+        ));
+    }
 
     match execute_agentdeck_tool(tool_name, arguments) {
         Ok((text, is_error)) => Ok(tool_content_from_text(&text, is_error)),
@@ -352,7 +402,40 @@ fn tool_content_from_text(text: &str, is_error: bool) -> Value {
 
 
 
-fn tools_list() -> Vec<Value> {
+fn chatgpt_submission_tool_names() -> &'static BTreeSet<String> {
+    static NAMES: OnceLock<BTreeSet<String>> = OnceLock::new();
+    NAMES.get_or_init(|| {
+        let manifest: Value = serde_json::from_str(CHATGPT_SUBMISSION_MANIFEST)
+            .expect("chatgpt-app-submission.json must be valid JSON");
+        manifest
+            .get("tools")
+            .and_then(Value::as_object)
+            .expect("chatgpt-app-submission.json must include tools")
+            .keys()
+            .cloned()
+            .collect()
+    })
+}
+
+fn tool_allowed_for_profile(profile: McpToolProfile, tool_name: &str) -> bool {
+    match profile {
+        McpToolProfile::Full => true,
+        McpToolProfile::ReadOnlyV1_1 => chatgpt_submission_tool_names().contains(tool_name),
+    }
+}
+
+fn tools_list(profile: McpToolProfile) -> Vec<Value> {
+    tools_list_all()
+        .into_iter()
+        .filter(|tool| {
+            tool.get("name")
+                .and_then(Value::as_str)
+                .is_some_and(|name| tool_allowed_for_profile(profile, name))
+        })
+        .collect()
+}
+
+fn tools_list_all() -> Vec<Value> {
     vec![
         tool_definition(
             "agentdeck.scan_environment",
@@ -895,15 +978,32 @@ mod tests {
 
     #[test]
     fn lists_tools() {
-        let tools = tools_list();
+        let tools = tools_list(McpToolProfile::Full);
         let names = tools
             .iter()
             .filter_map(|tool| tool.get("name").and_then(Value::as_str))
             .collect::<Vec<_>>();
         assert!(names.contains(&"agentdeck.scan_environment"));
+        assert!(names.contains(&"agentdeck.xai_research_search_web"));
         assert!(names.contains(&"agentdeck.dispatch_handoff"));
         assert!(names.contains(&"agentdeck.execute_skill"));
         assert!(names.contains(&"agentdeck.toggle_mcp_server"));
+    }
+
+    #[test]
+    fn chatgpt_http_profile_exposes_submission_tools_only() {
+        let tools = tools_list(McpToolProfile::ReadOnlyV1_1);
+        let names = tools
+            .iter()
+            .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(names.len(), chatgpt_submission_tool_names().len());
+        assert!(names.contains("agentdeck.xai_research_search_web"));
+        assert!(names.contains("agentdeck.xai_research_answer_with_sources"));
+        assert!(names.contains("agentdeck.xai_research_summarize_url"));
+        assert!(!names.contains("agentdeck.dispatch_handoff"));
+        assert!(!names.contains("agentdeck.execute_skill"));
+        assert!(!names.contains("agentdeck.toggle_mcp_server"));
     }
 
     #[test]
@@ -959,7 +1059,7 @@ mod tests {
             .get("tools")
             .and_then(Value::as_object)
             .expect("submission must include tools object");
-        let live_tools = tools_list();
+        let live_tools = tools_list(McpToolProfile::Full);
         let live_names = live_tools
             .iter()
             .filter_map(|tool| tool.get("name").and_then(Value::as_str))

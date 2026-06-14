@@ -218,11 +218,11 @@
       "expected_output_url": null
     },
     {
-      "description": "Run a bounded web search through xAI.",
-      "user_prompt": "Use AgentDeck to search the current web for recent AgentDeck MCP release notes and summarize the findings with sources.",
+      "description": "Run a bounded web search through xAI for the ameratom AgentDeck product.",
+      "user_prompt": "Use AgentDeck to search the current web for recent release notes for the ameratom/AgentDeck macOS local control plane MCP server (port 7823, Secure MCP Tunnel) and summarize the findings with sources.",
       "file_attachment_urls": null,
       "tools_triggered": "agentdeck.xai_research_search_web",
-      "expected_output": "Returns a concise research summary with source URLs or explains that xAI is not configured locally.",
+      "expected_output": "Returns a concise research summary with source URLs for ameratom/AgentDeck (not unrelated agent-deck projects) or explains that xAI is not configured locally.",
       "expected_output_url": null
     },
     {

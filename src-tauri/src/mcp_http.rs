@@ -104,7 +104,9 @@ async fn handle_mcp_post(body: String) -> impl IntoResponse {
         return accepted_response();
     }
 
-    let result = tokio::task::spawn_blocking(move || mcp_server::process_request_line(&body))
+    let result = tokio::task::spawn_blocking(move || {
+        mcp_server::process_request_line_with_profile(&body, mcp_server::McpToolProfile::ReadOnlyV1_1)
+    })
         .await
         .unwrap_or_else(|error| Err(format!("MCP request task failed: {error}")));
 

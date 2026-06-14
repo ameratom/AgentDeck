@@ -43,6 +43,17 @@ if mcp_post '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
   tool_count="$(mcp_post '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
     | jq '.result.tools | length')"
   pass "tools/list returned $tool_count tools at $MCP_URL"
+  if [[ "$tool_count" == "10" ]]; then
+    pass "tools/list matches ChatGPT read_only_v1_1 profile (10 tools)"
+  else
+    fail "expected 10 submission tools at $MCP_URL (got $tool_count) — restart AgentDeck after upgrading"
+  fi
+  if mcp_post '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
+    | jq -e '.result.tools[].name | select(. == "agentdeck.xai_research_search_web")' >/dev/null; then
+    pass "tools/list includes xAI research tools"
+  else
+    fail "tools/list missing agentdeck.xai_research_search_web"
+  fi
 else
   fail "tools/list failed at $MCP_URL — launch AgentDeck first"
   echo
@@ -57,6 +68,9 @@ submitted_tools=(
   agentdeck.list_mcp_servers
   agentdeck.health_check
   agentdeck.search_audit_log
+  agentdeck.xai_research_search_web
+  agentdeck.xai_research_answer_with_sources
+  agentdeck.xai_research_summarize_url
 )
 
 echo
@@ -66,6 +80,15 @@ for tool in "${submitted_tools[@]}"; do
     agentdeck.search_audit_log)
       response="$(mcp_call "$tool" '{"query":"handoff","limit":5}')"
       ;;
+    agentdeck.xai_research_search_web)
+      response="$(mcp_call "$tool" '{"query":"ameratom/AgentDeck macOS control plane MCP release notes","maxSources":3}')"
+      ;;
+    agentdeck.xai_research_answer_with_sources)
+      response="$(mcp_call "$tool" '{"question":"What MCP transports do ChatGPT connectors support?","maxSources":3}')"
+      ;;
+    agentdeck.xai_research_summarize_url)
+      response="$(mcp_call "$tool" '{"url":"https://developers.openai.com/api/docs/guides/tools-connectors-mcp"}')"
+      ;;
     *)
       response="$(mcp_call "$tool" '{}')"
       ;;
@@ -74,6 +97,10 @@ for tool in "${submitted_tools[@]}"; do
     pass "$tool returned content"
   elif echo "$response" | jq -e '.result | keys | length > 0' >/dev/null 2>&1; then
     pass "$tool returned structured result"
+  elif [[ "$tool" == agentdeck.xai_research_* ]] \
+    && echo "$response" | jq -r '.error.message // .result.content[0].text // empty' \
+      | rg -qi 'xai|api key|not configured'; then
+    pass "$tool skipped (xAI key not configured locally)"
   else
     detail="$(echo "$response" | jq -r '.error.message // .result.isError // "unknown error"' 2>/dev/null || echo "invalid JSON")"
     fail "$tool — $detail"
