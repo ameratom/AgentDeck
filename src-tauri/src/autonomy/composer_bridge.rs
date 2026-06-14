@@ -290,14 +290,18 @@ pub fn extract_patch(raw: &str) -> Result<String, ComposerError> {
         return Ok(fenced);
     }
 
-    if raw.contains("\n--- ") && raw.contains("\n+++ ") {
-        return Ok(raw.trim().to_owned());
+    if let Some(fenced) = extract_fenced_patch_blocks(raw).into_iter().find(|block| looks_like_unified_diff(block)) {
+        return Ok(fenced);
+    }
+
+    if let Some(patch) = extract_inline_unified_diff(raw) {
+        return Ok(patch);
     }
 
     if let Some(patch_section) = raw.split("PATCH:").nth(1) {
-        let trimmed = patch_section.trim();
-        if !trimmed.is_empty() {
-            return Ok(trimmed.to_owned());
+        let trimmed = strip_code_fence(patch_section.trim());
+        if looks_like_unified_diff(&trimmed) {
+            return Ok(trimmed);
         }
     }
 
@@ -306,29 +310,103 @@ pub fn extract_patch(raw: &str) -> Result<String, ComposerError> {
     ))
 }
 
+pub fn looks_like_unified_diff(text: &str) -> bool {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    if trimmed.starts_with("diff --git ") {
+        return true;
+    }
+    let has_old = trimmed.lines().any(|line| line.starts_with("--- "));
+    let has_new = trimmed.lines().any(|line| line.starts_with("+++ "));
+    let has_hunk = trimmed.lines().any(|line| line.starts_with("@@ "));
+    (has_old && has_new) || (has_old && has_hunk) || (has_new && has_hunk)
+}
+
+fn extract_inline_unified_diff(raw: &str) -> Option<String> {
+    let lines: Vec<&str> = raw.lines().collect();
+    let start = lines.iter().position(|line| {
+        line.starts_with("--- ")
+            || line.starts_with("+++ ")
+            || line.starts_with("diff --git ")
+            || line.starts_with("@@ ")
+    })?;
+
+    let mut end = lines.len();
+    for index in (start + 1)..lines.len() {
+        let line = lines[index];
+        if line.trim().is_empty() {
+            continue;
+        }
+        if line.starts_with("SUMMARY:")
+            || line.starts_with("SUGGESTED_TESTS:")
+            || line.starts_with("SUGGESTED_COMMANDS:")
+            || line.starts_with("```")
+        {
+            end = index;
+            break;
+        }
+    }
+
+    let patch = lines[start..end].join("\n").trim().to_owned();
+    if looks_like_unified_diff(&patch) {
+        Some(patch)
+    } else {
+        None
+    }
+}
+
 fn extract_fenced_diff(raw: &str) -> Option<String> {
-    let mut lines = raw.lines();
+    extract_fenced_patch_blocks(raw)
+        .into_iter()
+        .find(|block| looks_like_unified_diff(block))
+}
+
+fn extract_fenced_patch_blocks(raw: &str) -> Vec<String> {
+    let mut blocks = Vec::new();
     let mut captured = Vec::new();
     let mut in_fence = false;
 
-    while let Some(line) = lines.next() {
-        if line.trim().starts_with("```diff") {
+    for line in raw.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("```") {
+            if in_fence {
+                let block = captured.join("\n");
+                if !block.trim().is_empty() {
+                    blocks.push(block);
+                }
+                captured.clear();
+                in_fence = false;
+                continue;
+            }
             in_fence = true;
             continue;
-        }
-        if in_fence && line.trim() == "```" {
-            break;
         }
         if in_fence {
             captured.push(line);
         }
     }
 
-    if captured.is_empty() {
-        None
-    } else {
-        Some(captured.join("\n"))
+    if in_fence && !captured.is_empty() {
+        blocks.push(captured.join("\n"));
     }
+
+    blocks
+}
+
+fn strip_code_fence(text: &str) -> String {
+    let mut trimmed = text.trim();
+    if let Some(inner) = trimmed.strip_prefix("```") {
+        trimmed = inner.trim_start();
+        if let Some(rest) = trimmed.strip_prefix("diff") {
+            trimmed = rest.trim_start();
+        }
+        if let Some(rest) = trimmed.strip_suffix("```") {
+            trimmed = rest.trim();
+        }
+    }
+    trimmed.to_owned()
 }
 
 pub fn apply_unified_patch(repo_root: &Path, patch_text: &str) -> Result<(), ComposerError> {
@@ -419,5 +497,53 @@ PATCH:
     fn extract_patch_requires_diff_content() {
         let error = extract_patch("SUMMARY: nothing here").expect_err("missing patch");
         assert!(matches!(error, ComposerError::InvalidResponse(_)));
+    }
+
+    #[test]
+    fn extract_patch_accepts_plain_fence_without_diff_language() {
+        let raw = r#"Here is the patch:
+```
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1 +1 @@
+-old
++new
+```"#;
+        let patch = extract_patch(raw).expect("plain fence patch");
+        assert!(patch.contains("--- a/src/lib.rs"));
+        assert!(looks_like_unified_diff(&patch));
+    }
+
+    #[test]
+    fn extract_patch_accepts_inline_unified_diff_without_patch_header() {
+        let raw = r#"SUMMARY: inline diff
+--- a/file.rs
++++ b/file.rs
+@@ -0,0 +1 @@
++// added
+SUGGESTED_TESTS: none"#;
+        let patch = extract_patch(raw).expect("inline patch");
+        assert!(patch.contains("+++ b/file.rs"));
+    }
+
+    #[test]
+    fn extract_patch_accepts_diff_git_format() {
+        let raw = r#"PATCH:
+```diff
+diff --git a/foo.rs b/foo.rs
+index 111..222 100644
+--- a/foo.rs
++++ b/foo.rs
+@@ -1 +1 @@
+-old
++new
+```"#;
+        let patch = extract_patch(raw).expect("git diff patch");
+        assert!(patch.starts_with("diff --git"));
+    }
+
+    #[test]
+    fn looks_like_unified_diff_rejects_prose() {
+        assert!(!looks_like_unified_diff("SUMMARY: no diff here"));
     }
 }

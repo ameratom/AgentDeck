@@ -4,6 +4,7 @@ mod connector_bridge;
 mod router;
 pub mod mcp_http;
 mod mcp_public_url;
+mod mcp_input_schemas;
 mod mcp_output_schemas;
 pub mod mcp_server;
 mod models;

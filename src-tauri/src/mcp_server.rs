@@ -13,6 +13,7 @@ use crate::models::{
     AuditEventRecord, DiscoveredEntity, EnvironmentScan, GraphEdge, GraphNode, GraphSnapshot,
     HandoffRequest, HandoffRun, McpToggleResult, SkillExecutionRecord,
 };
+use crate::mcp_input_schemas;
 use crate::mcp_output_schemas;
 use crate::permissions;
 use crate::storage;
@@ -563,68 +564,21 @@ fn tools_list_all() -> Vec<Value> {
         tool_definition(
             "agentdeck.dispatch_handoff",
             "Dispatch an approved handoff to a target provider.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "callerAgentId": { "type": "string" },
-                    "sourceAgentId": { "type": "string" },
-                    "sourceAgentName": { "type": "string" },
-                    "targetProviderId": { "type": "string" },
-                    "targetProviderName": { "type": "string" },
-                    "targetModelId": { "type": "string" },
-                    "title": { "type": "string" },
-                    "task": { "type": "string" },
-                    "context": { "type": "string" },
-                    "approvals": {
-                        "type": "array",
-                        "items": { "type": "string" },
-                        "minItems": 1
-                    }
-                },
-                "required": [
-                    "sourceAgentId",
-                    "sourceAgentName",
-                    "targetProviderId",
-                    "targetProviderName",
-                    "targetModelId",
-                    "title",
-                    "task",
-                    "context",
-                    "approvals"
-                ],
-                "additionalProperties": false
-            }),
+            mcp_input_schemas::dispatch_handoff(),
             mcp_output_schemas::dispatch_handoff(),
             false,
         ),
         tool_definition(
             "agentdeck.execute_skill",
             "Execute a registered AgentDeck skill pipeline.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "callerAgentId": { "type": "string" },
-                    "skillId": { "type": "string" }
-                },
-                "required": ["skillId"],
-                "additionalProperties": false
-            }),
+            mcp_input_schemas::execute_skill(),
             mcp_output_schemas::execute_skill(),
             false,
         ),
         tool_definition(
             "agentdeck.toggle_mcp_server",
             "Enable or disable an MCP server in a local JSON config file with backup/restore safety.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "callerAgentId": { "type": "string" },
-                    "serverId": { "type": "string" },
-                    "enabled": { "type": "boolean" }
-                },
-                "required": ["serverId", "enabled"],
-                "additionalProperties": false
-            }),
+            mcp_input_schemas::toggle_mcp_server(),
             mcp_output_schemas::toggle_mcp_server(),
             false,
         ),
