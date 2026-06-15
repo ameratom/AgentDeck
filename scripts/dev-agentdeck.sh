@@ -4,27 +4,51 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-DEV_MATCH="Codex/AgentDeck/src-tauri/target/debug/agentdeck"
-INSTALLED_MATCH="/Applications/AgentDeck.app/Contents/MacOS/agentdeck"
+DEV_BIN="$ROOT/src-tauri/target/debug/agentdeck"
+INSTALLED_BIN="/Applications/AgentDeck.app/Contents/MacOS/agentdeck"
+
+dev_pids() {
+  local pid cwd
+  while read -r pid; do
+    [[ -z "$pid" ]] && continue
+    cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' || true)"
+    if [[ "$cwd" == "$ROOT"* ]]; then
+      echo "$pid"
+    fi
+  done < <(pgrep -f "target/debug/agentdeck" 2>/dev/null || true)
+}
+
+installed_pids() {
+  if [[ -f "$INSTALLED_BIN" ]]; then
+    lsof -t "$INSTALLED_BIN" 2>/dev/null || true
+  fi
+}
 
 dev_running() {
-  pgrep -f "$DEV_MATCH" >/dev/null 2>&1
+  [[ -n "$(dev_pids)" ]]
 }
 
 installed_running() {
-  pgrep -f "$INSTALLED_MATCH" >/dev/null 2>&1
+  [[ -n "$(installed_pids)" ]]
 }
 
 vite_running() {
   lsof -ti:1420 >/dev/null 2>&1
 }
 
+stop_pids() {
+  local pids="$1"
+  if [[ -n "$pids" ]]; then
+    kill $pids 2>/dev/null || true
+  fi
+}
+
 stop_installed_app() {
-  pkill -f "$INSTALLED_MATCH" 2>/dev/null || true
+  stop_pids "$(installed_pids)"
 }
 
 stop_dev_app() {
-  pkill -f "$DEV_MATCH" 2>/dev/null || true
+  stop_pids "$(dev_pids)"
 }
 
 stop_vite() {
@@ -61,6 +85,17 @@ fi
 # Orphaned Vite without the debug app — clear the port before relaunching.
 if vite_running && ! dev_running; then
   stop_vite
+  sleep 0.5
+fi
+
+# Debug app without Vite — stale GUI after the dev server died.
+if dev_running && ! vite_running; then
+  echo "Restarting stale AgentDeck dev session..."
+fi
+
+# Never keep the installed .app copy during local development.
+if installed_running; then
+  stop_installed_app
   sleep 0.5
 fi
 
