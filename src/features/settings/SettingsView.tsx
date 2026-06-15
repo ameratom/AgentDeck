@@ -394,8 +394,9 @@ export function SettingsView() {
             <h3>Chat and handoff router rules</h3>
             <p>
               Priority-ordered suggestions for Chat and Handoffs. Lower priority
-              numbers win first. Rules match source agent and/or keywords in the
-              prompt, title, and task.
+              numbers win first. Rules match source agent and/or whole-word
+              keywords in the prompt, title, and task (for example,{" "}
+              <code>code</code> matches “write code” but not “Codex”).
             </p>
           </div>
         </header>
@@ -492,7 +493,7 @@ export function SettingsView() {
                           }),
                         )
                       }
-                      placeholder="review, research, local"
+                      placeholder="review, write code, research"
                       value={rule.keyword ?? ""}
                     />
                   </label>

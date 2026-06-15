@@ -6,17 +6,9 @@ pub fn suggest_route(
     rules: &[RouterRule],
     request: &HandoffRouteRequest,
 ) -> Option<HandoffRouteSuggestion> {
-    let haystack = format!(
-        "{} {}",
-        request.title.trim(),
-        request.task.trim()
-    )
-    .to_lowercase();
+    let haystack = format!("{} {}", request.title.trim(), request.task.trim()).to_lowercase();
 
-    let mut candidates: Vec<&RouterRule> = rules
-        .iter()
-        .filter(|rule| rule.enabled)
-        .collect();
+    let mut candidates: Vec<&RouterRule> = rules.iter().filter(|rule| rule.enabled).collect();
     candidates.sort_by_key(|rule| rule.priority);
 
     for rule in candidates {
@@ -30,8 +22,7 @@ pub fn suggest_route(
         }
 
         if let Some(keyword) = rule.keyword.as_deref() {
-            let needle = keyword.trim().to_lowercase();
-            if needle.is_empty() || !haystack.contains(&needle) {
+            if !haystack_contains_keyword(&haystack, keyword) {
                 continue;
             }
         }
@@ -64,6 +55,45 @@ pub fn suggest_route(
     }
 
     None
+}
+
+fn haystack_contains_keyword(haystack: &str, keyword: &str) -> bool {
+    let keyword = keyword.trim();
+    if keyword.is_empty() {
+        return false;
+    }
+
+    keyword
+        .split_whitespace()
+        .all(|part| haystack_contains_word(haystack, part))
+}
+
+fn haystack_contains_word(haystack: &str, word: &str) -> bool {
+    let word = word.trim();
+    if word.is_empty() {
+        return false;
+    }
+
+    let haystack = haystack.to_lowercase();
+    let word = word.to_lowercase();
+    let word_bytes = word.as_bytes();
+    let hay_bytes = haystack.as_bytes();
+    let mut index = 0;
+
+    while index + word_bytes.len() <= hay_bytes.len() {
+        if haystack[index..index + word.len()] == word {
+            let before_ok = index == 0 || !hay_bytes[index - 1].is_ascii_alphanumeric();
+            let after_index = index + word_bytes.len();
+            let after_ok =
+                after_index >= hay_bytes.len() || !hay_bytes[after_index].is_ascii_alphanumeric();
+            if before_ok && after_ok {
+                return true;
+            }
+        }
+        index += 1;
+    }
+
+    false
 }
 
 #[cfg(test)]
@@ -120,5 +150,57 @@ mod tests {
             task: "Find current docs.".to_owned(),
         };
         assert!(suggest_route(&rules, &mismatch).is_none());
+    }
+
+    #[test]
+    fn does_not_match_code_keyword_inside_codex() {
+        let rules = vec![sample_rule(
+            "code-rule",
+            0,
+            None,
+            Some("code"),
+            "codex",
+        )];
+        let request = HandoffRouteRequest {
+            source_agent_id: "agent:agentdeck".to_owned(),
+            title: "Chat prompt".to_owned(),
+            task: "Hi Grok - send a message to codex for me.".to_owned(),
+        };
+        assert!(suggest_route(&rules, &request).is_none());
+    }
+
+    #[test]
+    fn matches_code_keyword_as_whole_word() {
+        let rules = vec![sample_rule(
+            "code-rule",
+            0,
+            None,
+            Some("code"),
+            "codex",
+        )];
+        let request = HandoffRouteRequest {
+            source_agent_id: "agent:agentdeck".to_owned(),
+            title: "Chat prompt".to_owned(),
+            task: "Please write code for this handler.".to_owned(),
+        };
+        let suggestion = suggest_route(&rules, &request).expect("suggestion");
+        assert_eq!(suggestion.target_provider_id, "codex");
+    }
+
+    #[test]
+    fn does_not_match_code_keyword_inside_encode() {
+        let rules = vec![sample_rule(
+            "code-rule",
+            0,
+            None,
+            Some("code"),
+            "codex",
+        )];
+        let request = HandoffRouteRequest {
+            source_agent_id: "agent:agentdeck".to_owned(),
+            title: "Chat prompt".to_owned(),
+            task: "encode the payload before sending".to_owned(),
+        };
+        assert!(suggest_route(&rules, &request).is_none());
     }
 }

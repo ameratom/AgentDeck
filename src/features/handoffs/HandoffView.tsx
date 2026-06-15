@@ -8,10 +8,11 @@ import {
   scanEnvironment,
   suggestHandoffRoute,
 } from "../../lib/invoke";
+import { routerAutoApplyKey } from "../settings/routerAutoApplyModel";
 import {
-  routerAutoApplyKey,
-  shouldAutoApplyRouter,
-} from "../settings/routerAutoApplyModel";
+  shouldAutoApplyRouterSuggestion,
+  shouldShowRouterSuggestion,
+} from "../settings/routerSuggestionModel";
 import type {
   EnvironmentScan,
   HandoffRouteSuggestion,
@@ -90,6 +91,10 @@ export function HandoffView({
     string | null
   >(null);
   const lastAutoAppliedRef = useRef<string | null>(null);
+  const userOverrodeProviderRef = useRef(false);
+  const [dismissedSuggestionKey, setDismissedSuggestionKey] = useState<
+    string | null
+  >(null);
 
   const activeScan = selectActiveScan(localScan, scan);
   const activeProject = activeScan?.project ?? null;
@@ -113,6 +118,13 @@ export function HandoffView({
     routeSuggestionResult?.requestKey === routeSuggestionRequestKey
       ? routeSuggestionResult.suggestion
       : null;
+  const showRouterSuggestion = shouldShowRouterSuggestion(
+    routeSuggestion,
+    selectedProviderId,
+    selectedModelId,
+    dismissedSuggestionKey,
+    routeSuggestionRequestKey,
+  );
 
   const canDispatch =
     selectedSource !== null &&
@@ -254,13 +266,18 @@ export function HandoffView({
   }, [refreshProviderModels]);
 
   useEffect(() => {
+    userOverrodeProviderRef.current = false;
+    setDismissedSuggestionKey(null);
+    lastAutoAppliedRef.current = null;
+  }, [routeSuggestionRequestKey]);
+
+  useEffect(() => {
     if (!routeSuggestionRequestKey) {
       return;
     }
 
     let cancelled = false;
     const requestKey = routeSuggestionRequestKey;
-    lastAutoAppliedRef.current = null;
     const timer = window.setTimeout(() => {
       void suggestHandoffRoute({
         sourceAgentId: effectiveSourceId,
@@ -312,6 +329,7 @@ export function HandoffView({
           ),
         );
       }
+      userOverrodeProviderRef.current = false;
       const prefix = mode === "auto" ? "Auto-applied" : "Applied";
       setStatus(
         `${prefix} router rule "${routeSuggestion.ruleName}" (${routeSuggestion.reason})`,
@@ -322,11 +340,14 @@ export function HandoffView({
 
   useEffect(() => {
     if (
-      !shouldAutoApplyRouter(
+      !shouldAutoApplyRouterSuggestion(
         routerAutoApply,
         routeSuggestion,
         routeSuggestionRequestKey,
         lastAutoAppliedRef.current,
+        selectedProviderId,
+        selectedModelId,
+        userOverrodeProviderRef.current,
       )
     ) {
       return;
@@ -341,6 +362,8 @@ export function HandoffView({
     routeSuggestion,
     routeSuggestionRequestKey,
     routerAutoApply,
+    selectedModelId,
+    selectedProviderId,
   ]);
 
   async function refreshSourceAgents(): Promise<void> {
@@ -522,6 +545,7 @@ export function HandoffView({
                 disabled={providers.length === 0}
                 onChange={(event) => {
                   const nextProviderId = event.target.value;
+                  userOverrodeProviderRef.current = true;
                   setSelectedProviderId(nextProviderId);
                   const nextProvider = providers.find(
                     (provider) => provider.id === nextProviderId,
@@ -549,7 +573,10 @@ export function HandoffView({
               <span>Target model</span>
               <select
                 disabled={!selectedProvider || modelOptions.length === 0}
-                onChange={(event) => setSelectedModelId(event.target.value)}
+                onChange={(event) => {
+                  userOverrodeProviderRef.current = true;
+                  setSelectedModelId(event.target.value);
+                }}
                 value={selectedModelId}
               >
                 {modelOptions.length ? (
@@ -598,7 +625,7 @@ export function HandoffView({
               </button>
             </div>
 
-            {routeSuggestion ? (
+            {showRouterSuggestion && routeSuggestion ? (
               <div className="handoff-router-suggestion handoff-wide">
                 <div>
                   <strong>
@@ -619,13 +646,30 @@ export function HandoffView({
                     . {routeSuggestion.reason}
                   </p>
                 </div>
-                <button
-                  disabled={refreshingModels}
-                  onClick={() => void applyRouteSuggestion("manual")}
-                  type="button"
-                >
-                  Apply suggestion
-                </button>
+                <div className="router-suggestion-actions">
+                  <button
+                    className="secondary-button router-dismiss-btn"
+                    disabled={refreshingModels}
+                    onClick={() =>
+                      setDismissedSuggestionKey(
+                        routerAutoApplyKey(
+                          routeSuggestionRequestKey,
+                          routeSuggestion,
+                        ),
+                      )
+                    }
+                    type="button"
+                  >
+                    Dismiss
+                  </button>
+                  <button
+                    disabled={refreshingModels}
+                    onClick={() => void applyRouteSuggestion("manual")}
+                    type="button"
+                  >
+                    Apply suggestion
+                  </button>
+                </div>
               </div>
             ) : null}
 

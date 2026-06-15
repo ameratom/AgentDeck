@@ -23,10 +23,11 @@ import {
   streamChatMessage,
   suggestHandoffRoute,
 } from "../../lib/invoke";
+import { routerAutoApplyKey } from "../settings/routerAutoApplyModel";
 import {
-  routerAutoApplyKey,
-  shouldAutoApplyRouter,
-} from "../settings/routerAutoApplyModel";
+  shouldAutoApplyRouterSuggestion,
+  shouldShowRouterSuggestion,
+} from "../settings/routerSuggestionModel";
 import type {
   ChatMessage,
   ChatStreamEvent,
@@ -67,7 +68,11 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
     string | null
   >(null);
   const lastAutoAppliedRef = useRef<string | null>(null);
+  const userOverrodeProviderRef = useRef(false);
   const messageListRef = useRef<HTMLDivElement | null>(null);
+  const [dismissedSuggestionKey, setDismissedSuggestionKey] = useState<
+    string | null
+  >(null);
 
   const selectedProvider =
     providers.find((provider) => provider.id === selectedProviderId) ?? null;
@@ -87,6 +92,13 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
     routeSuggestionResult?.requestKey === routeSuggestionRequestKey
       ? routeSuggestionResult.suggestion
       : null;
+  const showRouterSuggestion = shouldShowRouterSuggestion(
+    routeSuggestion,
+    selectedProviderId,
+    selectedModel,
+    dismissedSuggestionKey,
+    routeSuggestionRequestKey,
+  );
   const canSend =
     selectedProviderId !== "" &&
     selectedModel !== "" &&
@@ -208,13 +220,18 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
   }, [loading, refreshProviderModels, selectedProviderId]);
 
   useEffect(() => {
+    userOverrodeProviderRef.current = false;
+    setDismissedSuggestionKey(null);
+    lastAutoAppliedRef.current = null;
+  }, [routeSuggestionRequestKey]);
+
+  useEffect(() => {
     if (!routeSuggestionRequestKey) {
       return;
     }
 
     let cancelled = false;
     const requestKey = routeSuggestionRequestKey;
-    lastAutoAppliedRef.current = null;
     const timer = window.setTimeout(() => {
       void suggestHandoffRoute({
         sourceAgentId: "agent:agentdeck",
@@ -271,6 +288,7 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
           routeSuggestion.targetModelId,
         ),
       );
+      userOverrodeProviderRef.current = false;
       const prefix = mode === "auto" ? "Auto-applied" : "Applied";
       setStatus(
         `${prefix} router rule "${routeSuggestion.ruleName}" (${routeSuggestion.reason})`,
@@ -281,11 +299,14 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
 
   useEffect(() => {
     if (
-      !shouldAutoApplyRouter(
+      !shouldAutoApplyRouterSuggestion(
         routerAutoApply,
         routeSuggestion,
         routeSuggestionRequestKey,
         lastAutoAppliedRef.current,
+        selectedProviderId,
+        selectedModel,
+        userOverrodeProviderRef.current,
       )
     ) {
       return;
@@ -300,6 +321,8 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
     routeSuggestion,
     routeSuggestionRequestKey,
     routerAutoApply,
+    selectedModel,
+    selectedProviderId,
   ]);
 
   async function submitMessage(): Promise<void> {
@@ -425,6 +448,7 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
               disabled={loading || sending || providers.length === 0}
               onChange={(event) => {
                 const nextProviderId = event.target.value;
+                userOverrodeProviderRef.current = true;
                 setSelectedProviderId(nextProviderId);
                 const nextProvider = providers.find(
                   (provider) => provider.id === nextProviderId,
@@ -449,7 +473,10 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
               disabled={
                 loading || sending || !selectedProvider || modelOptions.length === 0
               }
-              onChange={(event) => setSelectedModel(event.target.value)}
+              onChange={(event) => {
+                userOverrodeProviderRef.current = true;
+                setSelectedModel(event.target.value);
+              }}
               value={selectedModel}
             >
               {modelOptions.length > 0 ? (
@@ -518,7 +545,7 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
         </p>
 
         <div className="chat-panel-body">
-          {routeSuggestion ? (
+          {showRouterSuggestion && routeSuggestion ? (
             <div className="chat-router-suggestion">
               <div>
                 <strong>
@@ -536,13 +563,30 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
                   . {routeSuggestion.reason}
                 </p>
               </div>
-              <button
-                disabled={refreshingModels || sending}
-                onClick={() => void applyRouteSuggestion("manual")}
-                type="button"
-              >
-                Apply suggestion
-              </button>
+              <div className="router-suggestion-actions">
+                <button
+                  className="secondary-button router-dismiss-btn"
+                  disabled={refreshingModels || sending}
+                  onClick={() =>
+                    setDismissedSuggestionKey(
+                      routerAutoApplyKey(
+                        routeSuggestionRequestKey,
+                        routeSuggestion,
+                      ),
+                    )
+                  }
+                  type="button"
+                >
+                  Dismiss
+                </button>
+                <button
+                  disabled={refreshingModels || sending}
+                  onClick={() => void applyRouteSuggestion("manual")}
+                  type="button"
+                >
+                  Apply suggestion
+                </button>
+              </div>
             </div>
           ) : null}
 

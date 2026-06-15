@@ -5123,6 +5123,17 @@ table.ag-pm td.ag-pm-cell {
   gap: 8px;
 }
 
+.router-suggestion-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.router-dismiss-btn {
+  white-space: nowrap;
+}
+
 .handoff-router-suggestion,
 .chat-router-suggestion {
   display: flex;
