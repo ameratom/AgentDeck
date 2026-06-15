@@ -67,6 +67,7 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
     string | null
   >(null);
   const lastAutoAppliedRef = useRef<string | null>(null);
+  const messageListRef = useRef<HTMLDivElement | null>(null);
 
   const selectedProvider =
     providers.find((provider) => provider.id === selectedProviderId) ?? null;
@@ -387,18 +388,27 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
           },
         ]
       : messages;
+  const storedMessageCount = toChatHistory(messages).length;
+
+  useEffect(() => {
+    const list = messageListRef.current;
+    if (!list) {
+      return;
+    }
+    list.scrollTop = list.scrollHeight;
+  }, [renderedMessages.length, streamingContent]);
 
   return (
-    <section className="workspace chat-workspace">
-      <header>
+    <section className="workspace chat-workspace chat-workspace--compact">
+      <header className="chat-compact-header">
         <div>
           <p className="eyebrow">Phase 4 / Agentic OS Chat</p>
           <h2>Unified Chat</h2>
-          <p>
+          <p className="chat-compact-subtitle">
             Route conversation across LM Studio, Grok, Claude, Codex, and Claude
             Code with streaming responses and persisted local history.
           </p>
-          <p className="workspace-context">
+          <p className="chat-compact-scope">
             {project
               ? `Scoped to ${project.name} at ${project.path}`
               : "No active project. Chat is using the global conversation."}
@@ -409,7 +419,7 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
 
       <section className="chat-panel">
         <div className="chat-toolbar">
-          <label>
+          <label className="chat-field chat-field--provider">
             <span>Provider</span>
             <select
               disabled={loading || sending || providers.length === 0}
@@ -433,7 +443,7 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
             </select>
           </label>
 
-          <label>
+          <label className="chat-field chat-field--model">
             <span>Model</span>
             <select
               disabled={
@@ -455,6 +465,7 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
           </label>
 
           <button
+            className="chat-toolbar-btn"
             disabled={!selectedProvider || refreshingModels || sending}
             onClick={() => {
               if (selectedProvider) {
@@ -466,18 +477,21 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
             {refreshingModels ? "Loading..." : "Load models"}
           </button>
 
-          {selectedProvider ? (
-            <span className="provider-health">
-              {credentialLabel(selectedProvider.credentialStatus)}
-              {selectedProvider.catalogSource !== "none"
-                ? ` / ${selectedProvider.catalogSource} catalog`
-                : ""}
-            </span>
+          {selectedProviderId === "xai" ? (
+            <label className="chat-tools-toggle">
+              <input
+                checked={enableAgentTools}
+                disabled={loading || sending}
+                onChange={(event) => setEnableAgentTools(event.target.checked)}
+                type="checkbox"
+              />
+              <span>AgentDeck tools</span>
+            </label>
           ) : null}
 
           {previewBlocked ? (
             <button
-              className="inline-link-button"
+              className="inline-link-button chat-toolbar-link"
               onClick={onOpenProviders}
               type="button"
             >
@@ -485,75 +499,81 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
             </button>
           ) : null}
 
-          {selectedProviderId === "xai" ? (
-            <label className="chat-toggle">
-              <input
-                checked={enableAgentTools}
-                disabled={loading || sending}
-                onChange={(event) => setEnableAgentTools(event.target.checked)}
-                type="checkbox"
-              />
-              <span>AgentDeck tools (non-streaming)</span>
-            </label>
+          {selectedProvider ? (
+            <span className="provider-health chat-toolbar-health">
+              {credentialLabel(selectedProvider.credentialStatus)}
+              {selectedProvider.catalogSource !== "none"
+                ? ` / ${selectedProvider.catalogSource} catalog`
+                : ""}
+            </span>
           ) : null}
-
-          <p className="chat-status" role="status">
-            <span className={sending || loading ? "pulse indicator" : "indicator"} />
-            {status}
-          </p>
         </div>
 
-        {routeSuggestion ? (
-          <div className="chat-router-suggestion">
-            <div>
-              <strong>
-                Router suggestion: {routeSuggestion.ruleName}
-                {displayAutoAppliedKey ===
-                routerAutoApplyKey(routeSuggestionRequestKey, routeSuggestion) ? (
-                  <span className="router-auto-badge">Auto-applied</span>
-                ) : null}
-              </strong>
-              <p>
-                Route to {routeSuggestion.targetProviderId}
-                {routeSuggestion.targetModelId
-                  ? ` / ${routeSuggestion.targetModelId}`
-                  : ""}
-                . {routeSuggestion.reason}
-              </p>
-            </div>
-            <button
-              disabled={refreshingModels || sending}
-              onClick={() => void applyRouteSuggestion("manual")}
-              type="button"
-            >
-              Apply suggestion
-            </button>
-          </div>
-        ) : null}
+        <p className="chat-status-strip" role="status">
+          <span className={sending || loading ? "pulse indicator" : "indicator"} />
+          <span className="chat-status-text">{status}</span>
+          <span className="chat-status-count">
+            {storedMessageCount} stored message{storedMessageCount === 1 ? "" : "s"}
+          </span>
+        </p>
 
-        <div className="message-list" aria-label="Chat messages">
-          {renderedMessages.length > 0 ? (
-            renderedMessages.map((message, index) => (
-              <article
-                className={`message-card ${message.role}`}
-                key={message.id ?? index}
+        <div className="chat-panel-body">
+          {routeSuggestion ? (
+            <div className="chat-router-suggestion">
+              <div>
+                <strong>
+                  Router suggestion: {routeSuggestion.ruleName}
+                  {displayAutoAppliedKey ===
+                  routerAutoApplyKey(routeSuggestionRequestKey, routeSuggestion) ? (
+                    <span className="router-auto-badge">Auto-applied</span>
+                  ) : null}
+                </strong>
+                <p>
+                  Route to {routeSuggestion.targetProviderId}
+                  {routeSuggestion.targetModelId
+                    ? ` / ${routeSuggestion.targetModelId}`
+                    : ""}
+                  . {routeSuggestion.reason}
+                </p>
+              </div>
+              <button
+                disabled={refreshingModels || sending}
+                onClick={() => void applyRouteSuggestion("manual")}
+                type="button"
               >
-                <div>
-                  <strong>{message.role}</strong>
-                  <span>{message.createdAt ?? "pending"}</span>
-                </div>
-                <p>{message.content}</p>
-              </article>
-            ))
-          ) : (
-            <div className="empty-chat">
-              <h3>No messages yet</h3>
-              <p>
-                Pick a provider and model, then send a prompt. AgentDeck stores
-                the exchange locally after the stream completes.
-              </p>
+                Apply suggestion
+              </button>
             </div>
-          )}
+          ) : null}
+
+          <div
+            className="message-list"
+            aria-label="Chat messages"
+            ref={messageListRef}
+          >
+            {renderedMessages.length > 0 ? (
+              renderedMessages.map((message, index) => (
+                <article
+                  className={`message-card ${message.role}`}
+                  key={message.id ?? index}
+                >
+                  <div>
+                    <strong>{message.role}</strong>
+                    <span>{message.createdAt ?? "pending"}</span>
+                  </div>
+                  <p>{message.content}</p>
+                </article>
+              ))
+            ) : (
+              <div className="empty-chat">
+                <h3>No messages yet</h3>
+                <p>
+                  Pick a provider and model, then send a prompt. AgentDeck stores
+                  the exchange locally after the stream completes.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
         <form
@@ -567,6 +587,12 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
             aria-label="Message"
             disabled={loading || selectedModel === "" || dispatchBlocked}
             onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                void submitMessage();
+              }
+            }}
             placeholder={
               previewBlocked
                 ? "Import or save provider credentials before chatting."
@@ -574,25 +600,25 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
                   ? "Check this provider successfully before chatting."
                 : "Ask any configured agent something..."
             }
-            rows={4}
+            rows={2}
             value={draft}
           />
-          <div>
-            <span>
-              {toChatHistory(messages).length} stored messages in this
-              conversation
+          <div className="composer-foot">
+            <span className="composer-count">
+              {storedMessageCount} stored message
+              {storedMessageCount === 1 ? "" : "s"} in this conversation
             </span>
             <div className="chat-actions">
               {sending ? (
                 <button
-                  className="secondary-button"
+                  className="secondary-button chat-stop-btn"
                   onClick={() => void stopStreaming()}
                   type="button"
                 >
                   Stop
                 </button>
               ) : null}
-              <button disabled={!canSend} type="submit">
+              <button className="chat-send-btn" disabled={!canSend} type="submit">
                 {sending ? "Streaming..." : "Send"}
               </button>
             </div>
