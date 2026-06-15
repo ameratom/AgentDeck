@@ -56,7 +56,6 @@ stop_vite() {
 }
 
 stop_all_agentdeck_gui() {
-  osascript -e 'tell application "AgentDeck" to quit' 2>/dev/null || true
   stop_installed_app
   stop_dev_app
   for _ in 1 2 3 4 5; do
@@ -68,7 +67,12 @@ stop_all_agentdeck_gui() {
 }
 
 focus_dev_window() {
-  osascript -e 'tell application "AgentDeck" to activate' 2>/dev/null || true
+  # Do not use `tell application "AgentDeck"` — macOS launches /Applications/AgentDeck.app.
+  local pid
+  pid="$(dev_pids | head -n 1)"
+  if [[ -n "$pid" ]]; then
+    osascript -e "tell application \"System Events\" to set frontmost of first process whose unix id is ${pid} to true" 2>/dev/null || true
+  fi
 }
 
 # Healthy dev session: Vite is up and the debug binary is running.
