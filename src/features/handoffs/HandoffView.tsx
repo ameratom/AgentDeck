@@ -1,12 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   checkProviderAdapter,
   listProviderAdapters,
+  loadAppSettings,
   loadHandoffRuns,
   runHandoff,
   scanEnvironment,
   suggestHandoffRoute,
 } from "../../lib/invoke";
+import {
+  routerAutoApplyKey,
+  shouldAutoApplyRouter,
+} from "../settings/routerAutoApplyModel";
 import type {
   EnvironmentScan,
   HandoffRouteSuggestion,
@@ -80,6 +85,11 @@ export function HandoffView({
     useState<ApprovalSnapshot | null>(null);
   const [routeSuggestionResult, setRouteSuggestionResult] =
     useState<RouteSuggestionResult | null>(null);
+  const [routerAutoApply, setRouterAutoApply] = useState(true);
+  const [displayAutoAppliedKey, setDisplayAutoAppliedKey] = useState<
+    string | null
+  >(null);
+  const lastAutoAppliedRef = useRef<string | null>(null);
 
   const activeScan = selectActiveScan(localScan, scan);
   const activeProject = activeScan?.project ?? null;
@@ -182,6 +192,20 @@ export function HandoffView({
 
   useEffect(() => {
     let cancelled = false;
+    void loadAppSettings()
+      .then((settings) => {
+        if (!cancelled) {
+          setRouterAutoApply(settings.routerAutoApply);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
 
     async function load(): Promise<void> {
       try {
@@ -236,6 +260,7 @@ export function HandoffView({
 
     let cancelled = false;
     const requestKey = routeSuggestionRequestKey;
+    lastAutoAppliedRef.current = null;
     const timer = window.setTimeout(() => {
       void suggestHandoffRoute({
         sourceAgentId: effectiveSourceId,
@@ -260,36 +285,63 @@ export function HandoffView({
     };
   }, [effectiveSourceId, routeSuggestionRequestKey, task, title]);
 
-  async function applyRouteSuggestion(): Promise<void> {
-    if (!routeSuggestion) {
-      return;
-    }
-    const targetProvider = providers.find(
-      (provider) => provider.id === routeSuggestion.targetProviderId,
-    );
-    if (!targetProvider) {
+  const applyRouteSuggestion = useCallback(
+    async (mode: "manual" | "auto" = "manual"): Promise<void> => {
+      if (!routeSuggestion) {
+        return;
+      }
+      const targetProvider = providers.find(
+        (provider) => provider.id === routeSuggestion.targetProviderId,
+      );
+      if (!targetProvider) {
+        setStatus(
+          `Router target ${routeSuggestion.targetProviderId} is no longer available. Update the rule in Settings.`,
+        );
+        return;
+      }
+      setSelectedProviderId(routeSuggestion.targetProviderId);
+      const refreshedProvider = await refreshProviderModels(
+        routeSuggestion.targetProviderId,
+        providers,
+      );
+      if (refreshedProvider?.verifiedAvailable) {
+        setSelectedModelId(
+          resolveSuggestedHandoffModel(
+            refreshedProvider,
+            routeSuggestion.targetModelId,
+          ),
+        );
+      }
+      const prefix = mode === "auto" ? "Auto-applied" : "Applied";
       setStatus(
-        `Router target ${routeSuggestion.targetProviderId} is no longer available. Update the rule in Settings.`,
+        `${prefix} router rule "${routeSuggestion.ruleName}" (${routeSuggestion.reason})`,
       );
+    },
+    [providers, refreshProviderModels, routeSuggestion],
+  );
+
+  useEffect(() => {
+    if (
+      !shouldAutoApplyRouter(
+        routerAutoApply,
+        routeSuggestion,
+        routeSuggestionRequestKey,
+        lastAutoAppliedRef.current,
+      )
+    ) {
       return;
     }
-    setSelectedProviderId(routeSuggestion.targetProviderId);
-    const refreshedProvider = await refreshProviderModels(
-      routeSuggestion.targetProviderId,
-      providers,
-    );
-    if (refreshedProvider?.verifiedAvailable) {
-      setSelectedModelId(
-        resolveSuggestedHandoffModel(
-          refreshedProvider,
-          routeSuggestion.targetModelId,
-        ),
-      );
-    }
-    setStatus(
-      `Applied router rule "${routeSuggestion.ruleName}" (${routeSuggestion.reason})`,
-    );
-  }
+    const nextKey = routerAutoApplyKey(routeSuggestionRequestKey, routeSuggestion);
+    lastAutoAppliedRef.current = nextKey;
+    void applyRouteSuggestion("auto").then(() => {
+      setDisplayAutoAppliedKey(nextKey);
+    });
+  }, [
+    applyRouteSuggestion,
+    routeSuggestion,
+    routeSuggestionRequestKey,
+    routerAutoApply,
+  ]);
 
   async function refreshSourceAgents(): Promise<void> {
     setScanningSources(true);
@@ -549,7 +601,16 @@ export function HandoffView({
             {routeSuggestion ? (
               <div className="handoff-router-suggestion handoff-wide">
                 <div>
-                  <strong>Router suggestion: {routeSuggestion.ruleName}</strong>
+                  <strong>
+                    Router suggestion: {routeSuggestion.ruleName}
+                    {displayAutoAppliedKey ===
+                    routerAutoApplyKey(
+                      routeSuggestionRequestKey,
+                      routeSuggestion,
+                    ) ? (
+                      <span className="router-auto-badge">Auto-applied</span>
+                    ) : null}
+                  </strong>
                   <p>
                     Route to {routeSuggestion.targetProviderId}
                     {routeSuggestion.targetModelId
@@ -560,7 +621,7 @@ export function HandoffView({
                 </div>
                 <button
                   disabled={refreshingModels}
-                  onClick={() => void applyRouteSuggestion()}
+                  onClick={() => void applyRouteSuggestion("manual")}
                   type="button"
                 >
                   Apply suggestion

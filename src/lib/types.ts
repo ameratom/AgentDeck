@@ -397,6 +397,7 @@ export interface AppSettings {
   crashSafeLogging: boolean;
   grokSubscriptionActive: boolean;
   onboardingComplete: boolean;
+  routerAutoApply: boolean;
 }
 
 export interface AppSettingsUpdateRequest {
@@ -404,6 +405,7 @@ export interface AppSettingsUpdateRequest {
   crashSafeLogging: boolean;
   grokSubscriptionActive: boolean;
   onboardingComplete: boolean;
+  routerAutoApply: boolean;
 }
 
 export interface LocalExportResult {

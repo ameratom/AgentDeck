@@ -1,5 +1,5 @@
 import { Channel } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   buildChatRequest,
   resolvePreferredModel,
@@ -16,12 +16,17 @@ import {
   cancelStreamChat,
   checkProviderAdapter,
   listProviderAdapters,
+  loadAppSettings,
   loadChatMessages,
   loadChatPreferences,
   saveChatPreferences,
   streamChatMessage,
   suggestHandoffRoute,
 } from "../../lib/invoke";
+import {
+  routerAutoApplyKey,
+  shouldAutoApplyRouter,
+} from "../settings/routerAutoApplyModel";
 import type {
   ChatMessage,
   ChatStreamEvent,
@@ -57,6 +62,11 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
   const [enableAgentTools, setEnableAgentTools] = useState(false);
   const [routeSuggestionResult, setRouteSuggestionResult] =
     useState<RouteSuggestionResult | null>(null);
+  const [routerAutoApply, setRouterAutoApply] = useState(true);
+  const [displayAutoAppliedKey, setDisplayAutoAppliedKey] = useState<
+    string | null
+  >(null);
+  const lastAutoAppliedRef = useRef<string | null>(null);
 
   const selectedProvider =
     providers.find((provider) => provider.id === selectedProviderId) ?? null;
@@ -112,6 +122,20 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
     } finally {
       setRefreshingModels(false);
     }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadAppSettings()
+      .then((settings) => {
+        if (!cancelled) {
+          setRouterAutoApply(settings.routerAutoApply);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -189,6 +213,7 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
 
     let cancelled = false;
     const requestKey = routeSuggestionRequestKey;
+    lastAutoAppliedRef.current = null;
     const timer = window.setTimeout(() => {
       void suggestHandoffRoute({
         sourceAgentId: "agent:agentdeck",
@@ -213,41 +238,68 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
     };
   }, [draft, routeSuggestionRequestKey]);
 
-  async function applyRouteSuggestion(): Promise<void> {
-    if (!routeSuggestion) {
-      return;
-    }
-    const targetProvider = providers.find(
-      (provider) => provider.id === routeSuggestion.targetProviderId,
-    );
-    if (!targetProvider) {
-      setStatus(
-        `Router target ${routeSuggestion.targetProviderId} is no longer available. Update the rule in Settings.`,
+  const applyRouteSuggestion = useCallback(
+    async (mode: "manual" | "auto" = "manual"): Promise<void> => {
+      if (!routeSuggestion) {
+        return;
+      }
+      const targetProvider = providers.find(
+        (provider) => provider.id === routeSuggestion.targetProviderId,
       );
-      return;
-    }
-    if (providerCredentialBlocked(targetProvider)) {
-      setStatus(
-        `${targetProvider.name} needs usable credentials before this suggestion can be applied.`,
-      );
-      return;
-    }
+      if (!targetProvider) {
+        setStatus(
+          `Router target ${routeSuggestion.targetProviderId} is no longer available. Update the rule in Settings.`,
+        );
+        return;
+      }
+      if (providerCredentialBlocked(targetProvider)) {
+        setStatus(
+          `${targetProvider.name} needs usable credentials before this suggestion can be applied.`,
+        );
+        return;
+      }
 
-    setSelectedProviderId(targetProvider.id);
-    const refreshedProvider = await refreshProviderModels(targetProvider.id);
-    if (!refreshedProvider?.verifiedAvailable) {
+      setSelectedProviderId(targetProvider.id);
+      const refreshedProvider = await refreshProviderModels(targetProvider.id);
+      if (!refreshedProvider?.verifiedAvailable) {
+        return;
+      }
+      setSelectedModel(
+        resolveSuggestedChatModel(
+          refreshedProvider.models,
+          routeSuggestion.targetModelId,
+        ),
+      );
+      const prefix = mode === "auto" ? "Auto-applied" : "Applied";
+      setStatus(
+        `${prefix} router rule "${routeSuggestion.ruleName}" (${routeSuggestion.reason})`,
+      );
+    },
+    [providers, refreshProviderModels, routeSuggestion],
+  );
+
+  useEffect(() => {
+    if (
+      !shouldAutoApplyRouter(
+        routerAutoApply,
+        routeSuggestion,
+        routeSuggestionRequestKey,
+        lastAutoAppliedRef.current,
+      )
+    ) {
       return;
     }
-    setSelectedModel(
-      resolveSuggestedChatModel(
-        refreshedProvider.models,
-        routeSuggestion.targetModelId,
-      ),
-    );
-    setStatus(
-      `Applied router rule "${routeSuggestion.ruleName}" (${routeSuggestion.reason})`,
-    );
-  }
+    const nextKey = routerAutoApplyKey(routeSuggestionRequestKey, routeSuggestion);
+    lastAutoAppliedRef.current = nextKey;
+    void applyRouteSuggestion("auto").then(() => {
+      setDisplayAutoAppliedKey(nextKey);
+    });
+  }, [
+    applyRouteSuggestion,
+    routeSuggestion,
+    routeSuggestionRequestKey,
+    routerAutoApply,
+  ]);
 
   async function submitMessage(): Promise<void> {
     const content = draft.trim();
@@ -454,7 +506,13 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
         {routeSuggestion ? (
           <div className="chat-router-suggestion">
             <div>
-              <strong>Router suggestion: {routeSuggestion.ruleName}</strong>
+              <strong>
+                Router suggestion: {routeSuggestion.ruleName}
+                {displayAutoAppliedKey ===
+                routerAutoApplyKey(routeSuggestionRequestKey, routeSuggestion) ? (
+                  <span className="router-auto-badge">Auto-applied</span>
+                ) : null}
+              </strong>
               <p>
                 Route to {routeSuggestion.targetProviderId}
                 {routeSuggestion.targetModelId
@@ -465,7 +523,7 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
             </div>
             <button
               disabled={refreshingModels || sending}
-              onClick={() => void applyRouteSuggestion()}
+              onClick={() => void applyRouteSuggestion("manual")}
               type="button"
             >
               Apply suggestion

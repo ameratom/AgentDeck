@@ -16,7 +16,10 @@
     "hermes:overnight": "cargo run --manifest-path src-tauri/Cargo.toml --bin hermes -- overnight --queue tasks/overnight.queue.json",
     "hermes:overnight:dry-run": "AGENTDECK_COMPOSER_BRIDGE=dry-run pnpm hermes:overnight",
     "hermes:review": "cargo run --manifest-path src-tauri/Cargo.toml --bin hermes -- review",
-    "chatgpt:review-health": "bash scripts/check-chatgpt-review-health.sh"
+    "chatgpt:review-health": "bash scripts/check-chatgpt-review-health.sh",
+    "tauri:build": "tauri build",
+    "notarize:preflight": "bash scripts/notarize-preflight.sh",
+    "notarize": "bash scripts/notarize-macos.sh"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",

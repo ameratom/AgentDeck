@@ -5,6 +5,7 @@ use rusqlite::{params, Connection};
 use tauri::AppHandle;
 
 use crate::commands::providers;
+use crate::commands::webhooks;
 use crate::models::{HandoffRequest, HandoffRun};
 use crate::permissions;
 use crate::storage;
@@ -109,6 +110,21 @@ pub(crate) fn dispatch_handoff(path: &Path, request: HandoffRequest) -> Result<H
                 Some(&audit_ref),
             )?;
             let run = storage::load_handoff_run(&connection, &run_id)?;
+            webhooks::emit_webhook_events(
+                path,
+                "handoff.completed",
+                serde_json::json!({
+                    "runId": run.id,
+                    "threadId": run.thread_id,
+                    "projectId": run.project_id,
+                    "status": run.status,
+                    "title": run.title,
+                    "sourceAgentId": run.source_agent_id,
+                    "targetProviderId": run.target_provider_id,
+                    "targetModelId": run.target_model_id,
+                    "auditRef": run.audit_ref,
+                }),
+            );
             let _ = finish_reason;
             Ok(run)
         }
@@ -131,6 +147,22 @@ pub(crate) fn dispatch_handoff(path: &Path, request: HandoffRequest) -> Result<H
                 Some(&audit_ref),
             )?;
             let run = storage::load_handoff_run(&connection, &run_id)?;
+            webhooks::emit_webhook_events(
+                path,
+                "handoff.failed",
+                serde_json::json!({
+                    "runId": run.id,
+                    "threadId": run.thread_id,
+                    "projectId": run.project_id,
+                    "status": run.status,
+                    "title": run.title,
+                    "sourceAgentId": run.source_agent_id,
+                    "targetProviderId": run.target_provider_id,
+                    "targetModelId": run.target_model_id,
+                    "error": run.error,
+                    "auditRef": run.audit_ref,
+                }),
+            );
             Ok(run)
         }
     }

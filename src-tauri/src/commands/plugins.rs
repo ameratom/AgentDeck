@@ -8,6 +8,7 @@ use serde::Deserialize;
 use tauri::{AppHandle, Emitter};
 
 use crate::commands::providers;
+use crate::commands::webhooks;
 use crate::models::{
     PluginDefinition, PluginInventory, PluginToggleRequest, SkillDefinition, SkillExecutionRecord,
     SkillExecutionRequest,
@@ -202,6 +203,17 @@ pub(crate) fn execute_skill_pipeline(
             "status": status,
             "auditRef": audit_ref,
             "output": output,
+        }),
+    );
+    webhooks::emit_webhook_events(
+        path,
+        "skill.completed",
+        serde_json::json!({
+            "executionId": execution_id,
+            "skillId": skill.id,
+            "skillName": skill.name,
+            "status": status,
+            "auditRef": audit_ref,
         }),
     );
 

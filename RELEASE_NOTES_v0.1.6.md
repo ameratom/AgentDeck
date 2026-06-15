@@ -9,6 +9,9 @@ Post-ChatGPT submission hardening: MCP schemas, Hermes reliability, and Activity
 - **Hermes patch parsing** — Composer bridge accepts plain fences, inline hunks, and `diff --git` responses
 - **Activity links** — Audit rows for `handoff.*` actions expose **View run** when a stored handoff run is linked by `audit_ref`
 - **Overnight queue** — Expanded `tasks/overnight.queue.json` with four ALLOW tasks for supervised dry-runs
+- **Outbound webhooks** — Settings UI for signed webhook endpoints; auto-dispatch on handoff and skill events
+- **Router auto-apply** — Settings toggle to apply matching router rules automatically in Chat and Handoffs
+- **Release scripts** — `pnpm tauri:build`, `pnpm notarize:preflight`, `pnpm notarize`
 
 ## ChatGPT app (v1.0.0)
 

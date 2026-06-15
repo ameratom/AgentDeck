@@ -27,6 +27,7 @@ pub async fn update_app_settings(
                 crash_safe_logging: request.crash_safe_logging,
                 grok_subscription_active: request.grok_subscription_active,
                 onboarding_complete: request.onboarding_complete,
+                router_auto_apply: request.router_auto_apply,
             },
         )
     })

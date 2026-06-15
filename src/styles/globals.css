@@ -2581,6 +2581,24 @@ pre {
   gap: 10px;
 }
 
+.settings-router-auto {
+  margin-bottom: 1rem;
+}
+
+.router-auto-badge {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(88, 166, 255, 0.16);
+  color: #79c0ff;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
 .settings-webhook-events {
   display: flex;
   flex-wrap: wrap;

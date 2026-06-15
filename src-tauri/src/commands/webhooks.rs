@@ -121,6 +121,43 @@ pub async fn dispatch_webhook_event(
     .map_err(|error| format!("webhook dispatch task failed: {error}"))?
 }
 
+pub(crate) fn emit_webhook_events(
+    database_path: &Path,
+    event_type: &str,
+    payload: serde_json::Value,
+) {
+    if webhooks::validate_event_type(event_type).is_err() {
+        return;
+    }
+    let Ok(connection) = storage::open_database(database_path) else {
+        return;
+    };
+    let Ok(plugin_enabled) = storage::plugin_enabled(&connection, WEBHOOKS_PLUGIN_ID) else {
+        return;
+    };
+    if !plugin_enabled {
+        return;
+    }
+    let Ok(endpoints) = storage::load_webhook_endpoints(&connection, database_path) else {
+        return;
+    };
+
+    for endpoint in endpoints {
+        if !endpoint.enabled || !endpoint.event_types.contains(&event_type.to_owned()) {
+            continue;
+        }
+        let _ = dispatch_to_endpoint(
+            database_path,
+            &connection,
+            &endpoint,
+            event_type,
+            payload.clone(),
+            None,
+            false,
+        );
+    }
+}
+
 fn dispatch_webhook(
     database_path: &Path,
     request: WebhookDispatchRequest,
@@ -145,10 +182,30 @@ fn dispatch_webhook(
         ));
     }
 
+    dispatch_to_endpoint(
+        database_path,
+        &connection,
+        &endpoint,
+        &request.event_type,
+        request.payload,
+        Some(&request.approvals),
+        true,
+    )
+}
+
+fn dispatch_to_endpoint(
+    database_path: &Path,
+    connection: &Connection,
+    endpoint: &crate::models::WebhookEndpoint,
+    event_type: &str,
+    payload: serde_json::Value,
+    approvals: Option<&[String]>,
+    require_success: bool,
+) -> Result<WebhookDispatchResult, String> {
     let secret = read_webhook_secret(database_path, &endpoint.id)?;
     let started_at = Utc::now();
     let dispatch_result =
-        webhooks::dispatch_outbound(&endpoint.url, secret.as_deref(), &request.event_type, request.payload);
+        webhooks::dispatch_outbound(&endpoint.url, secret.as_deref(), event_type, payload);
     let dispatched_at = Utc::now().to_rfc3339();
 
     let (success, status_code, detail, audit_status) = match &dispatch_result {
@@ -169,31 +226,33 @@ fn dispatch_webhook(
 
     let audit_ref = store_webhook_audit(
         database_path,
-        &connection,
-        &request.endpoint_id,
-        &request.event_type,
+        connection,
+        &endpoint.id,
+        event_type,
         audit_status,
         started_at,
     )?;
-    storage::append_log_event(
-        database_path,
-        "webhook.dispatch",
-        serde_json::json!({
-            "endpointId": request.endpoint_id,
-            "eventType": request.event_type,
-            "statusCode": status_code,
-            "success": success,
-            "detail": detail,
-            "auditRef": audit_ref,
-            "approvals": request.approvals,
-        }),
-    );
+    let mut log_payload = serde_json::json!({
+        "endpointId": endpoint.id,
+        "eventType": event_type,
+        "statusCode": status_code,
+        "success": success,
+        "detail": detail,
+        "auditRef": audit_ref,
+        "automatic": approvals.is_none(),
+    });
+    if let Some(approvals) = approvals {
+        log_payload["approvals"] = serde_json::json!(approvals);
+    }
+    storage::append_log_event(database_path, "webhook.dispatch", log_payload);
 
-    dispatch_result?;
+    if require_success {
+        dispatch_result?;
+    }
 
     Ok(WebhookDispatchResult {
-        endpoint_id: request.endpoint_id,
-        event_type: request.event_type,
+        endpoint_id: endpoint.id.clone(),
+        event_type: event_type.to_owned(),
         status_code,
         success,
         detail,
@@ -285,6 +344,39 @@ mod tests {
             has_secret: false,
             updated_at: Utc::now().to_rfc3339(),
         }
+    }
+
+    #[test]
+    fn emit_skips_when_plugin_disabled() {
+        let path = std::env::temp_dir().join(format!(
+            "agentdeck-webhook-emit-{}.sqlite3",
+            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        let connection = storage::open_database(&path).expect("open database");
+        storage::replace_webhook_endpoints(&connection, &path, &[sample_endpoint("webhook:test")])
+            .expect("save endpoint");
+        connection
+            .execute(
+                "INSERT INTO plugin_settings (plugin_id, enabled, updated_at)
+                 VALUES (?1, 0, ?2)",
+                params![WEBHOOKS_PLUGIN_ID, Utc::now().to_rfc3339()],
+            )
+            .expect("disable plugin");
+
+        emit_webhook_events(
+            &path,
+            "handoff.completed",
+            serde_json::json!({ "runId": "handoff:test" }),
+        );
+        let count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM audit_events WHERE action = 'webhook.dispatch'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count webhook audits");
+        assert_eq!(count, 0);
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

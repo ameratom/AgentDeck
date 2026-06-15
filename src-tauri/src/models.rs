@@ -462,6 +462,7 @@ pub struct AppSettings {
     pub crash_safe_logging: bool,
     pub grok_subscription_active: bool,
     pub onboarding_complete: bool,
+    pub router_auto_apply: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -471,6 +472,7 @@ pub struct AppSettingsUpdateRequest {
     pub crash_safe_logging: bool,
     pub grok_subscription_active: bool,
     pub onboarding_complete: bool,
+    pub router_auto_apply: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

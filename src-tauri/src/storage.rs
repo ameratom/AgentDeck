@@ -18,6 +18,7 @@ const DEFAULT_REDACT_SENSITIVE_EXPORTS: bool = true;
 const DEFAULT_CRASH_SAFE_LOGGING: bool = true;
 const DEFAULT_GROK_SUBSCRIPTION_ACTIVE: bool = true;
 const DEFAULT_ONBOARDING_COMPLETE: bool = false;
+const DEFAULT_ROUTER_AUTO_APPLY: bool = true;
 const DEFAULT_CHAT_PROVIDER_ID: &str = "lm-studio";
 
 pub fn database_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -247,6 +248,11 @@ pub fn load_app_settings(path: &Path) -> Result<AppSettings, String> {
             "onboarding_complete",
             DEFAULT_ONBOARDING_COMPLETE,
         )?,
+        router_auto_apply: read_bool_setting(
+            &connection,
+            "router_auto_apply",
+            DEFAULT_ROUTER_AUTO_APPLY,
+        )?,
     })
 }
 
@@ -326,6 +332,11 @@ pub fn update_app_settings(path: &Path, settings: &AppSettings) -> Result<AppSet
         &connection,
         "onboarding_complete",
         settings.onboarding_complete,
+    )?;
+    set_bool_setting(
+        &connection,
+        "router_auto_apply",
+        settings.router_auto_apply,
     )?;
     append_log_event(
         path,

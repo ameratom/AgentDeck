@@ -34,6 +34,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   crashSafeLogging: true,
   grokSubscriptionActive: true,
   onboardingComplete: false,
+  routerAutoApply: true,
 };
 
 export function SettingsView() {
@@ -326,6 +327,24 @@ export function SettingsView() {
           </div>
         </header>
 
+        <label className="settings-toggle settings-router-auto">
+          <input
+            checked={settings.routerAutoApply}
+            disabled={saving || loading}
+            onChange={(event) =>
+              void saveSettings({
+                ...settings,
+                routerAutoApply: event.target.checked,
+              })
+            }
+            type="checkbox"
+          />
+          <span>
+            Automatically apply router suggestions in Chat and Handoffs when a
+            rule matches.
+          </span>
+        </label>
+
         <div className="settings-router-list">
           {routerRules.length ? (
             routerRules.map((rule, index) => (
@@ -520,8 +539,9 @@ export function SettingsView() {
             <h3>Outbound webhooks</h3>
             <p>
               Configure explicit outbound event delivery with optional HMAC
-              signing. Dispatch requires the Webhooks plugin and user approval.
-              Inbound listeners remain deferred.
+              signing. Handoff and skill events auto-dispatch to subscribed
+              endpoints when the plugin is enabled. Manual test pings still
+              require approval. Inbound listeners remain deferred.
             </p>
           </div>
           <span>{webhooksPluginEnabled ? "Plugin enabled" : "Plugin disabled"}</span>
