@@ -1,21 +1,21 @@
 pub mod autonomy;
-mod commands;
 pub mod chatgpt_review;
+mod commands;
 mod connector_bridge;
-mod router;
 pub mod mcp_http;
-mod mcp_public_url;
 mod mcp_input_schemas;
 mod mcp_output_schemas;
+mod mcp_public_url;
 pub mod mcp_server;
 mod models;
-mod webhooks;
 mod permissions;
+mod router;
 mod secrets;
 mod storage;
 mod tool_path;
 mod tray;
 mod tunnel_control;
+mod webhooks;
 mod xai_research;
 
 use std::thread;
@@ -52,7 +52,16 @@ pub fn start_chatgpt_review_monitor(app: AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            tray::focus_main_window(app);
+        }));
+    }
+
+    builder
         .setup(|app| {
             tray::setup(app.handle())?;
             mcp_http::start_http_server();

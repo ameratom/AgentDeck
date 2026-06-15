@@ -37,15 +37,33 @@ pub fn setup(app: &AppHandle) -> Result<(), String> {
         MenuItem::with_id(app, MENU_QUICK_HANDOFF, "Quick Handoff", true, None::<&str>)
             .map_err(|error| format!("failed to create tray menu item: {error}"))?;
     let run_items = [
-        MenuItem::with_id(app, format!("{MENU_RUN_PREFIX}0"), "No recent runs", false, None::<&str>)
-            .map_err(|error| format!("failed to create tray menu item: {error}"))?,
-        MenuItem::with_id(app, format!("{MENU_RUN_PREFIX}1"), "No recent runs", false, None::<&str>)
-            .map_err(|error| format!("failed to create tray menu item: {error}"))?,
-        MenuItem::with_id(app, format!("{MENU_RUN_PREFIX}2"), "No recent runs", false, None::<&str>)
-            .map_err(|error| format!("failed to create tray menu item: {error}"))?,
+        MenuItem::with_id(
+            app,
+            format!("{MENU_RUN_PREFIX}0"),
+            "No recent runs",
+            false,
+            None::<&str>,
+        )
+        .map_err(|error| format!("failed to create tray menu item: {error}"))?,
+        MenuItem::with_id(
+            app,
+            format!("{MENU_RUN_PREFIX}1"),
+            "No recent runs",
+            false,
+            None::<&str>,
+        )
+        .map_err(|error| format!("failed to create tray menu item: {error}"))?,
+        MenuItem::with_id(
+            app,
+            format!("{MENU_RUN_PREFIX}2"),
+            "No recent runs",
+            false,
+            None::<&str>,
+        )
+        .map_err(|error| format!("failed to create tray menu item: {error}"))?,
     ];
-    let separator =
-        PredefinedMenuItem::separator(app).map_err(|error| format!("failed to create separator: {error}"))?;
+    let separator = PredefinedMenuItem::separator(app)
+        .map_err(|error| format!("failed to create separator: {error}"))?;
     let quit = MenuItem::with_id(app, MENU_QUIT, "Quit", true, None::<&str>)
         .map_err(|error| format!("failed to create tray menu item: {error}"))?;
 
@@ -111,7 +129,10 @@ pub fn setup(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-pub fn set_chatgpt_review_tooltip(app: &AppHandle, health: &ChatgptReviewHealth) -> Result<(), String> {
+pub fn set_chatgpt_review_tooltip(
+    app: &AppHandle,
+    health: &ChatgptReviewHealth,
+) -> Result<(), String> {
     let mut guard = TRAY_STATE
         .lock()
         .map_err(|_| "tray state lock poisoned".to_owned())?;
@@ -177,7 +198,7 @@ fn recent_runs(app: &AppHandle) -> Result<Vec<HandoffRun>, String> {
     handoffs::load_recent_runs(&database_path, 3)
 }
 
-fn focus_main_window(app: &AppHandle) {
+pub fn focus_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
@@ -232,7 +253,9 @@ fn tray_icon(health: TrayHealth) -> Result<Image<'static>, String> {
         TrayHealth::Yellow => "tray-yellow.png",
         TrayHealth::Red => "tray-red.png",
     };
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("icons").join(file_name);
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("icons")
+        .join(file_name);
     let bytes = std::fs::read(&path)
         .map_err(|error| format!("failed to read tray icon {}: {error}", path.display()))?;
     Image::from_bytes(&bytes).map_err(|error| format!("failed to decode tray icon: {error}"))
