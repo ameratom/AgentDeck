@@ -127,12 +127,16 @@ pub struct ChatPreferences {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase", tag = "event", content = "data")]
 pub enum ChatStreamEvent {
-    Token { content: String },
+    Token {
+        content: String,
+    },
     Done {
         finish_reason: Option<String>,
         message: ChatMessage,
     },
-    Error { message: String },
+    Error {
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -463,6 +467,10 @@ pub struct AppSettings {
     pub grok_subscription_active: bool,
     pub onboarding_complete: bool,
     pub router_auto_apply: bool,
+    pub menu_bar_service_mode: bool,
+    pub start_hidden: bool,
+    pub close_hides_to_menu_bar: bool,
+    pub launch_at_login: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -473,6 +481,10 @@ pub struct AppSettingsUpdateRequest {
     pub grok_subscription_active: bool,
     pub onboarding_complete: bool,
     pub router_auto_apply: bool,
+    pub menu_bar_service_mode: bool,
+    pub start_hidden: bool,
+    pub close_hides_to_menu_bar: bool,
+    pub launch_at_login: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -104,4 +104,6 @@ if installed_running; then
 fi
 
 stop_all_agentdeck_gui
+# Keep the Dock icon and visible window during local development.
+export AGENTDECK_DEV_SHOW_DOCK=1
 exec pnpm tauri dev

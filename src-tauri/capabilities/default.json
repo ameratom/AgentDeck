@@ -3,5 +3,8 @@
   "identifier": "default",
   "description": "Core capability for the AgentDeck main window",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "autostart:default"
+  ]
 }

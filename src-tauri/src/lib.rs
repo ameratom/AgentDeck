@@ -9,6 +9,7 @@ mod mcp_public_url;
 pub mod mcp_server;
 mod models;
 mod permissions;
+mod presence;
 mod router;
 mod secrets;
 mod storage;
@@ -21,7 +22,7 @@ mod xai_research;
 use std::thread;
 use std::time::Duration;
 
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 
 const SCAN_UPDATE_INTERVAL_SECS: u64 = 10;
 
@@ -56,14 +57,45 @@ pub fn run() {
 
     #[cfg(desktop)]
     {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            tray::focus_main_window(app);
-        }));
+        use tauri_plugin_autostart::MacosLauncher;
+
+        builder = builder
+            .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None::<Vec<&str>>))
+            .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+                let _ = presence::show_main_window(app);
+            }));
     }
 
     builder
         .setup(|app| {
             tray::setup(app.handle())?;
+            if let Some(window) = app.get_webview_window("main") {
+                let app_handle = app.handle().clone();
+                window.on_window_event(move |event| {
+                    if let WindowEvent::CloseRequested { api, .. } = event {
+                        let Ok(settings) = presence::load_settings(&app_handle) else {
+                            return;
+                        };
+                        if presence::should_hide_on_close(&settings) {
+                            api.prevent_close();
+                            let _ = presence::hide_main_window(&app_handle);
+                        }
+                    }
+                });
+            }
+            if let Ok(settings) = presence::load_settings(app.handle()) {
+                #[cfg(desktop)]
+                {
+                    use tauri_plugin_autostart::ManagerExt;
+                    let manager = app.autolaunch();
+                    if settings.launch_at_login {
+                        let _ = manager.enable();
+                    } else {
+                        let _ = manager.disable();
+                    }
+                }
+            }
+            presence::apply_startup_presence(app.handle())?;
             mcp_http::start_http_server();
             if let Ok(database_path) = storage::database_path(app.handle()) {
                 let _ = connector_bridge::sync_grok_mcp_bridge(&database_path);
@@ -124,6 +156,10 @@ pub fn run() {
             commands::plugins::execute_skill,
             commands::settings::load_app_settings,
             commands::settings::update_app_settings,
+            commands::settings::sync_app_presence,
+            commands::settings::show_main_window,
+            commands::settings::hide_main_window,
+            commands::settings::is_main_window_visible,
             commands::settings::export_local_data,
             commands::settings::delete_local_data,
             commands::settings::load_audit_events,

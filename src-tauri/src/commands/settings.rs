@@ -3,7 +3,34 @@ use tauri::AppHandle;
 use crate::models::{
     AppSettings, AppSettingsUpdateRequest, AuditEventsPage, LocalDeleteResult, LocalExportResult,
 };
+use crate::presence;
 use crate::storage;
+
+#[cfg(desktop)]
+fn sync_launch_at_login(app: &AppHandle, enabled: bool) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+
+    let manager = app.autolaunch();
+    if enabled {
+        manager
+            .enable()
+            .map_err(|error| format!("failed to enable launch at login: {error}"))
+    } else {
+        manager
+            .disable()
+            .map_err(|error| format!("failed to disable launch at login: {error}"))
+    }
+}
+
+#[cfg(not(desktop))]
+fn sync_launch_at_login(_app: &AppHandle, _enabled: bool) -> Result<(), String> {
+    Ok(())
+}
+
+fn apply_settings_side_effects(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
+    sync_launch_at_login(app, settings.launch_at_login)?;
+    presence::sync_presence_from_settings(app)
+}
 
 #[tauri::command]
 pub async fn load_app_settings(app: AppHandle) -> Result<AppSettings, String> {
@@ -19,26 +46,30 @@ pub async fn update_app_settings(
     request: AppSettingsUpdateRequest,
 ) -> Result<AppSettings, String> {
     let database_path = storage::database_path(&app)?;
-    tauri::async_runtime::spawn_blocking(move || {
-        storage::update_app_settings(
-            &database_path,
-            &AppSettings {
-                redact_sensitive_exports: request.redact_sensitive_exports,
-                crash_safe_logging: request.crash_safe_logging,
-                grok_subscription_active: request.grok_subscription_active,
-                onboarding_complete: request.onboarding_complete,
-                router_auto_apply: request.router_auto_apply,
-            },
-        )
+    let settings = AppSettings {
+        redact_sensitive_exports: request.redact_sensitive_exports,
+        crash_safe_logging: request.crash_safe_logging,
+        grok_subscription_active: request.grok_subscription_active,
+        onboarding_complete: request.onboarding_complete,
+        router_auto_apply: request.router_auto_apply,
+        menu_bar_service_mode: request.menu_bar_service_mode,
+        start_hidden: request.start_hidden,
+        close_hides_to_menu_bar: request.close_hides_to_menu_bar,
+        launch_at_login: request.launch_at_login,
+    };
+    let saved = tauri::async_runtime::spawn_blocking(move || {
+        storage::update_app_settings(&database_path, &settings)
     })
     .await
-    .map_err(|error| format!("settings update task failed: {error}"))?
+    .map_err(|error| format!("settings update task failed: {error}"))??;
+    apply_settings_side_effects(&app, &saved)?;
+    Ok(saved)
 }
 
 #[tauri::command]
 pub async fn complete_onboarding(app: AppHandle) -> Result<AppSettings, String> {
     let database_path = storage::database_path(&app)?;
-    tauri::async_runtime::spawn_blocking(move || {
+    let saved = tauri::async_runtime::spawn_blocking(move || {
         let current = storage::load_app_settings(&database_path)?;
         storage::update_app_settings(
             &database_path,
@@ -49,7 +80,32 @@ pub async fn complete_onboarding(app: AppHandle) -> Result<AppSettings, String> 
         )
     })
     .await
-    .map_err(|error| format!("onboarding completion task failed: {error}"))?
+    .map_err(|error| format!("onboarding completion task failed: {error}"))??;
+    if presence::should_start_hidden(&saved) {
+        let _ = presence::hide_main_window(&app);
+    }
+    apply_settings_side_effects(&app, &saved)?;
+    Ok(saved)
+}
+
+#[tauri::command]
+pub async fn sync_app_presence(app: AppHandle) -> Result<(), String> {
+    presence::sync_presence_from_settings(&app)
+}
+
+#[tauri::command]
+pub async fn show_main_window(app: AppHandle) -> Result<(), String> {
+    presence::show_main_window(&app)
+}
+
+#[tauri::command]
+pub async fn hide_main_window(app: AppHandle) -> Result<(), String> {
+    presence::hide_main_window(&app)
+}
+
+#[tauri::command]
+pub async fn is_main_window_visible(app: AppHandle) -> Result<bool, String> {
+    Ok(presence::is_main_window_visible(&app))
 }
 
 #[tauri::command]
@@ -135,8 +191,7 @@ mod tests {
         seed_audit_events(&path).expect("seed audit events");
         let connection = storage::open_database(&path).expect("open database");
 
-        let first_page =
-            storage::query_audit_events(&connection, 2, 0, None).expect("first page");
+        let first_page = storage::query_audit_events(&connection, 2, 0, None).expect("first page");
         assert_eq!(first_page.total, 5);
         assert_eq!(first_page.events.len(), 2);
         assert_eq!(first_page.offset, 0);
@@ -146,8 +201,7 @@ mod tests {
         assert_eq!(second_page.events.len(), 2);
         assert_eq!(second_page.offset, 2);
         assert_ne!(
-            first_page.events[0].id,
-            second_page.events[0].id,
+            first_page.events[0].id, second_page.events[0].id,
             "pages should not overlap"
         );
 
@@ -160,8 +214,8 @@ mod tests {
         seed_audit_events(&path).expect("seed audit events");
         let connection = storage::open_database(&path).expect("open database");
 
-        let filtered = storage::query_audit_events(&connection, 10, 0, Some("grok"))
-            .expect("filtered page");
+        let filtered =
+            storage::query_audit_events(&connection, 10, 0, Some("grok")).expect("filtered page");
         assert_eq!(filtered.total, 3);
         assert!(filtered
             .events

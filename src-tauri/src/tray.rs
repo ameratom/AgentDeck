@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{TrayIcon, TrayIconBuilder};
-use tauri::{AppHandle, Emitter, Manager, Wry};
+use tauri::{AppHandle, Emitter, Wry};
 
 use crate::chatgpt_review::ChatgptReviewHealth;
 use crate::commands;
@@ -12,6 +12,8 @@ use crate::commands::handoffs;
 use crate::models::{EnvironmentScan, HandoffRun};
 use crate::storage;
 
+const MENU_OPEN: &str = "open_agentdeck";
+const MENU_HIDE: &str = "hide_to_menu_bar";
 const MENU_QUICK_HANDOFF: &str = "quick_handoff";
 const MENU_RUN_PREFIX: &str = "recent_run_";
 const MENU_QUIT: &str = "quit";
@@ -25,6 +27,8 @@ enum TrayHealth {
 
 struct TrayState {
     tray: TrayIcon<Wry>,
+    open_item: MenuItem<Wry>,
+    hide_item: MenuItem<Wry>,
     run_items: [MenuItem<Wry>; 3],
     agent_health: TrayHealth,
     review_ready: Option<bool>,
@@ -33,6 +37,11 @@ struct TrayState {
 static TRAY_STATE: Mutex<Option<TrayState>> = Mutex::new(None);
 
 pub fn setup(app: &AppHandle) -> Result<(), String> {
+    let open_item = MenuItem::with_id(app, MENU_OPEN, "Open AgentDeck", true, None::<&str>)
+        .map_err(|error| format!("failed to create tray menu item: {error}"))?;
+    let hide_item =
+        MenuItem::with_id(app, MENU_HIDE, "Hide to Menu Bar", true, None::<&str>)
+            .map_err(|error| format!("failed to create tray menu item: {error}"))?;
     let quick_handoff =
         MenuItem::with_id(app, MENU_QUICK_HANDOFF, "Quick Handoff", true, None::<&str>)
             .map_err(|error| format!("failed to create tray menu item: {error}"))?;
@@ -70,6 +79,10 @@ pub fn setup(app: &AppHandle) -> Result<(), String> {
     let menu = Menu::with_items(
         app,
         &[
+            &open_item,
+            &hide_item,
+            &PredefinedMenuItem::separator(app)
+                .map_err(|error| format!("failed to create separator: {error}"))?,
             &quick_handoff,
             &separator,
             &run_items[0],
@@ -94,13 +107,21 @@ pub fn setup(app: &AppHandle) -> Result<(), String> {
                 app.exit(0);
                 return;
             }
+            if id == MENU_OPEN {
+                let _ = crate::presence::show_main_window(app);
+                return;
+            }
+            if id == MENU_HIDE {
+                let _ = crate::presence::hide_main_window(app);
+                return;
+            }
             if id == MENU_QUICK_HANDOFF {
-                focus_main_window(app);
+                let _ = crate::presence::show_main_window(app);
                 let _ = app.emit("navigate-view", "Handoffs");
                 return;
             }
             if let Some(index) = id.strip_prefix(MENU_RUN_PREFIX) {
-                focus_main_window(app);
+                let _ = crate::presence::show_main_window(app);
                 let _ = app.emit(
                     "navigate-view",
                     serde_json::json!({
@@ -119,12 +140,15 @@ pub fn setup(app: &AppHandle) -> Result<(), String> {
             .map_err(|_| "tray state lock poisoned".to_owned())?;
         *guard = Some(TrayState {
             tray,
+            open_item,
+            hide_item,
             run_items,
             agent_health: TrayHealth::Yellow,
             review_ready: None,
         });
     }
 
+    refresh_menu_state(app);
     refresh_from_scan(app, &commands::scan_environment_for_app(app))?;
     Ok(())
 }
@@ -199,11 +223,27 @@ fn recent_runs(app: &AppHandle) -> Result<Vec<HandoffRun>, String> {
 }
 
 pub fn focus_main_window(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
+    let _ = crate::presence::show_main_window(app);
+}
+
+pub fn refresh_menu_state(app: &AppHandle) {
+    let visible = crate::presence::is_main_window_visible(app);
+    let service_mode = crate::presence::load_settings(app)
+        .map(|settings| settings.menu_bar_service_mode)
+        .unwrap_or(true);
+
+    let Ok(mut guard) = TRAY_STATE.lock() else {
+        return;
+    };
+    let Some(state) = guard.as_mut() else {
+        return;
+    };
+
+    let _ = state.open_item.set_enabled(true);
+    let _ = state
+        .hide_item
+        .set_enabled(service_mode && visible);
+    let _ = app;
 }
 
 fn agent_health(scan: &EnvironmentScan) -> TrayHealth {

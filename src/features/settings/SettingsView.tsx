@@ -35,6 +35,10 @@ const DEFAULT_SETTINGS: AppSettings = {
   grokSubscriptionActive: true,
   onboardingComplete: false,
   routerAutoApply: true,
+  menuBarServiceMode: true,
+  startHidden: true,
+  closeHidesToMenuBar: true,
+  launchAtLogin: false,
 };
 
 export function SettingsView() {
@@ -241,6 +245,75 @@ export function SettingsView() {
       </p>
 
       <section className="settings-grid">
+        <article className="settings-card">
+          <div className="settings-card-heading">
+            <div>
+              <p className="eyebrow">Presence</p>
+              <h3>Launch behavior</h3>
+            </div>
+            <span>{settings.menuBarServiceMode ? "Service" : "Application"}</span>
+          </div>
+          <label className="settings-toggle">
+            <input
+              checked={settings.menuBarServiceMode}
+              disabled={saving || loading}
+              onChange={(event) =>
+                void saveSettings({
+                  ...settings,
+                  menuBarServiceMode: event.target.checked,
+                })
+              }
+              type="checkbox"
+            />
+            <span>
+              Default to menu bar service on launch. Turn off to run as a Dock
+              application instead.
+            </span>
+          </label>
+          <label className="settings-toggle">
+            <input
+              checked={settings.startHidden}
+              disabled={saving || loading || !settings.menuBarServiceMode}
+              onChange={(event) =>
+                void saveSettings({
+                  ...settings,
+                  startHidden: event.target.checked,
+                })
+              }
+              type="checkbox"
+            />
+            <span>Start hidden in the menu bar when service mode is enabled.</span>
+          </label>
+          <label className="settings-toggle">
+            <input
+              checked={settings.closeHidesToMenuBar}
+              disabled={saving || loading || !settings.menuBarServiceMode}
+              onChange={(event) =>
+                void saveSettings({
+                  ...settings,
+                  closeHidesToMenuBar: event.target.checked,
+                })
+              }
+              type="checkbox"
+            />
+            <span>Close button hides to the menu bar instead of quitting.</span>
+          </label>
+          <label className="settings-toggle">
+            <input
+              checked={settings.launchAtLogin}
+              disabled={saving || loading}
+              onChange={(event) =>
+                void saveSettings({
+                  ...settings,
+                  launchAtLogin: event.target.checked,
+                })
+              }
+              type="checkbox"
+            />
+            <span>Launch AgentDeck at login.</span>
+          </label>
+        </article>
+
         <article className="settings-card">
           <div className="settings-card-heading">
             <div>

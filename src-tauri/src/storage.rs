@@ -19,6 +19,10 @@ const DEFAULT_CRASH_SAFE_LOGGING: bool = true;
 const DEFAULT_GROK_SUBSCRIPTION_ACTIVE: bool = true;
 const DEFAULT_ONBOARDING_COMPLETE: bool = false;
 const DEFAULT_ROUTER_AUTO_APPLY: bool = true;
+const DEFAULT_MENU_BAR_SERVICE_MODE: bool = true;
+const DEFAULT_START_HIDDEN: bool = true;
+const DEFAULT_CLOSE_HIDES_TO_MENU_BAR: bool = true;
+const DEFAULT_LAUNCH_AT_LOGIN: bool = false;
 const DEFAULT_CHAT_PROVIDER_ID: &str = "lm-studio";
 
 pub fn database_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -253,6 +257,22 @@ pub fn load_app_settings(path: &Path) -> Result<AppSettings, String> {
             "router_auto_apply",
             DEFAULT_ROUTER_AUTO_APPLY,
         )?,
+        menu_bar_service_mode: read_bool_setting(
+            &connection,
+            "menu_bar_service_mode",
+            DEFAULT_MENU_BAR_SERVICE_MODE,
+        )?,
+        start_hidden: read_bool_setting(&connection, "start_hidden", DEFAULT_START_HIDDEN)?,
+        close_hides_to_menu_bar: read_bool_setting(
+            &connection,
+            "close_hides_to_menu_bar",
+            DEFAULT_CLOSE_HIDES_TO_MENU_BAR,
+        )?,
+        launch_at_login: read_bool_setting(
+            &connection,
+            "launch_at_login",
+            DEFAULT_LAUNCH_AT_LOGIN,
+        )?,
     })
 }
 
@@ -275,7 +295,11 @@ pub fn save_chat_preferences(path: &Path, preferences: &ChatPreferences) -> Resu
         "chat_last_provider_id",
         &preferences.last_provider_id,
     )?;
-    set_string_setting(&connection, "chat_last_model_id", &preferences.last_model_id)?;
+    set_string_setting(
+        &connection,
+        "chat_last_model_id",
+        &preferences.last_model_id,
+    )?;
     Ok(())
 }
 
@@ -333,11 +357,19 @@ pub fn update_app_settings(path: &Path, settings: &AppSettings) -> Result<AppSet
         "onboarding_complete",
         settings.onboarding_complete,
     )?;
+    set_bool_setting(&connection, "router_auto_apply", settings.router_auto_apply)?;
     set_bool_setting(
         &connection,
-        "router_auto_apply",
-        settings.router_auto_apply,
+        "menu_bar_service_mode",
+        settings.menu_bar_service_mode,
     )?;
+    set_bool_setting(&connection, "start_hidden", settings.start_hidden)?;
+    set_bool_setting(
+        &connection,
+        "close_hides_to_menu_bar",
+        settings.close_hides_to_menu_bar,
+    )?;
+    set_bool_setting(&connection, "launch_at_login", settings.launch_at_login)?;
     append_log_event(
         path,
         "settings.update",
@@ -681,7 +713,9 @@ fn migrate_database(connection: &Connection) -> Result<(), String> {
             .prepare("PRAGMA table_info(handoff_runs)")
             .and_then(|mut statement| {
                 let columns = statement.query_map([], |row| row.get::<_, String>(1))?;
-                Ok(columns.filter_map(Result::ok).any(|column| column == "project_id"))
+                Ok(columns
+                    .filter_map(Result::ok)
+                    .any(|column| column == "project_id"))
             })
             .map_err(|error| format!("failed to inspect handoff schema: {error}"))?;
         if !has_project_id {
@@ -738,9 +772,7 @@ fn migrate_database(connection: &Connection) -> Result<(), String> {
                 .prepare("PRAGMA table_info(project_connector_settings)")
                 .and_then(|mut statement| {
                     let columns = statement.query_map([], |row| row.get::<_, String>(1))?;
-                    Ok(columns
-                        .filter_map(Result::ok)
-                        .any(|name| name == column))
+                    Ok(columns.filter_map(Result::ok).any(|name| name == column))
                 })
                 .map_err(|error| format!("failed to inspect connector settings schema: {error}"))?;
             if !has_column {
@@ -829,11 +861,9 @@ pub fn load_webhook_endpoints(
     rows.map(|row| {
         let (id, name, url, enabled, event_types_json, updated_at) =
             row.map_err(|error| format!("failed to decode webhook endpoint: {error}"))?;
-        let event_types: Vec<String> = serde_json::from_str(&event_types_json).map_err(|error| {
-            format!("failed to decode webhook event types for {id}: {error}")
-        })?;
-        let has_secret = read_provider_secret(database_path, &webhook_secret_slot(&id))?
-            .is_some();
+        let event_types: Vec<String> = serde_json::from_str(&event_types_json)
+            .map_err(|error| format!("failed to decode webhook event types for {id}: {error}"))?;
+        let has_secret = read_provider_secret(database_path, &webhook_secret_slot(&id))?.is_some();
         Ok(WebhookEndpoint {
             id,
             name,
@@ -921,9 +951,7 @@ pub fn replace_webhook_endpoints(
     load_webhook_endpoints(connection, database_path)
 }
 
-pub fn load_project_workspaces(
-    connection: &Connection,
-) -> Result<Vec<ProjectWorkspace>, String> {
+pub fn load_project_workspaces(connection: &Connection) -> Result<Vec<ProjectWorkspace>, String> {
     let mut statement = connection
         .prepare(
             "SELECT id, name, path, active, created_at, updated_at
@@ -1091,9 +1119,7 @@ fn purge_legacy_provider_credential_flags(connection: &Connection) -> Result<(),
             "DELETE FROM app_settings WHERE key LIKE 'provider_credential_stored:%'",
             [],
         )
-        .map_err(|error| {
-            format!("failed to purge legacy provider credential flags: {error}")
-        })?;
+        .map_err(|error| format!("failed to purge legacy provider credential flags: {error}"))?;
     Ok(())
 }
 
@@ -1158,9 +1184,8 @@ pub fn load_router_rules(connection: &Connection) -> Result<Vec<RouterRule>, Str
     for row in rows {
         let (id, priority, rule_json, updated_at) =
             row.map_err(|error| format!("failed to read router rule row: {error}"))?;
-        let payload: RouterRulePayload = serde_json::from_str(&rule_json).map_err(|error| {
-            format!("failed to parse router rule {id}: {error}")
-        })?;
+        let payload: RouterRulePayload = serde_json::from_str(&rule_json)
+            .map_err(|error| format!("failed to parse router rule {id}: {error}"))?;
         rules.push(RouterRule {
             id,
             priority,
@@ -1364,9 +1389,7 @@ pub fn query_audit_events(
     offset: u32,
     filter: Option<&str>,
 ) -> Result<AuditEventsPage, String> {
-    let filter = filter
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
+    let filter = filter.map(str::trim).filter(|value| !value.is_empty());
     let total = count_audit_events(connection, filter)?;
     let mut events = load_audit_events_page(connection, limit, offset, filter)?;
 
@@ -1388,20 +1411,16 @@ pub fn enrich_audit_events_with_run_ids(
         if !record.action.starts_with("handoff.") {
             continue;
         }
-        record.run_id = lookup_handoff_run_id_by_audit_ref(connection, &record.id)?
-            .or_else(|| {
-                lookup_handoff_run_id_by_thread_id(connection, &record.conversation_id)
-                    .ok()
-                    .flatten()
-            });
+        record.run_id = lookup_handoff_run_id_by_audit_ref(connection, &record.id)?.or_else(|| {
+            lookup_handoff_run_id_by_thread_id(connection, &record.conversation_id)
+                .ok()
+                .flatten()
+        });
     }
     Ok(())
 }
 
-fn count_audit_events(
-    connection: &Connection,
-    filter: Option<&str>,
-) -> Result<u32, String> {
+fn count_audit_events(connection: &Connection, filter: Option<&str>) -> Result<u32, String> {
     let count: i64 = if let Some(filter) = filter {
         let pattern = format!("%{filter}%");
         connection

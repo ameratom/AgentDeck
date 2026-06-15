@@ -398,6 +398,10 @@ export interface AppSettings {
   grokSubscriptionActive: boolean;
   onboardingComplete: boolean;
   routerAutoApply: boolean;
+  menuBarServiceMode: boolean;
+  startHidden: boolean;
+  closeHidesToMenuBar: boolean;
+  launchAtLogin: boolean;
 }
 
 export interface AppSettingsUpdateRequest {
@@ -406,6 +410,10 @@ export interface AppSettingsUpdateRequest {
   grokSubscriptionActive: boolean;
   onboardingComplete: boolean;
   routerAutoApply: boolean;
+  menuBarServiceMode: boolean;
+  startHidden: boolean;
+  closeHidesToMenuBar: boolean;
+  launchAtLogin: boolean;
 }
 
 export interface LocalExportResult {
