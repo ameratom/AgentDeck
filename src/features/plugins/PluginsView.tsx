@@ -1,16 +1,22 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   executeSkill,
   loadPluginInventory,
   setPluginEnabled,
 } from "../../lib/invoke";
 import type { PluginInventory } from "../../lib/types";
-import { pluginCounts, requiredPluginNames } from "./pluginModel";
+import { PluginTable } from "./components/PluginTable";
+import { RegistryDrawer, type RegistryDrawerKind } from "./components/RegistryDrawer";
+import { SkillTable } from "./components/SkillTable";
+import { pluginCounts } from "./pluginModel";
 
 export function PluginsView() {
   const [inventory, setInventory] = useState<PluginInventory | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [status, setStatus] = useState("Loading plugin and skill registry.");
+  const [drawerKind, setDrawerKind] = useState<RegistryDrawerKind>(null);
+  const [selectedPluginId, setSelectedPluginId] = useState<string | null>(null);
+  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -66,124 +72,96 @@ export function PluginsView() {
     }
   }
 
+  function openPluginDrawer(pluginId: string): void {
+    setDrawerKind("plugin");
+    setSelectedPluginId(pluginId);
+    setSelectedSkillId(null);
+  }
+
+  function openSkillDrawer(skillId: string): void {
+    setDrawerKind("skill");
+    setSelectedSkillId(skillId);
+    setSelectedPluginId(null);
+  }
+
+  function closeDrawer(): void {
+    setDrawerKind(null);
+    setSelectedPluginId(null);
+    setSelectedSkillId(null);
+  }
+
   const counts = inventory
     ? pluginCounts(inventory.plugins)
     : { enabled: 0, total: 0 };
   const availableSkills =
     inventory?.skills.filter((skill) => skill.available).length ?? 0;
+  const plugins = inventory?.plugins ?? [];
+  const skills = inventory?.skills ?? [];
+
+  const selectedPlugin = useMemo(
+    () => plugins.find((plugin) => plugin.id === selectedPluginId) ?? null,
+    [plugins, selectedPluginId],
+  );
+  const selectedSkill = useMemo(
+    () => skills.find((skill) => skill.id === selectedSkillId) ?? null,
+    [skills, selectedSkillId],
+  );
 
   return (
-    <section className="workspace plugins-workspace">
-      <header>
+    <section className="workspace plugins-workspace plugins-workspace--compact">
+      <header className="reg-compact-header">
         <div>
           <p className="eyebrow">Phase 8 / Registry</p>
           <h2>Plugins &amp; Skills</h2>
-          <p>
+          <p className="reg-compact-subtitle">
             Manage AgentDeck integration modules and inspect reusable workflows
             loaded from local YAML and markdown files.
           </p>
         </div>
-        <span className="phase-badge">Local registry</span>
+        <div className="reg-compact-header-meta">
+          <span className="phase-badge">Local registry</span>
+          <div className="reg-meta-pills">
+            <span className="registry-count">
+              {counts.enabled}/{counts.total} plugins
+            </span>
+            <span className={`registry-count ${availableSkills > 0 ? "ok" : ""}`}>
+              {availableSkills} skills ready
+            </span>
+          </div>
+        </div>
       </header>
 
-      <div className="plugin-status" role="status">
+      <div className="reg-compact-status" role="status">
         <span className={busyId ? "pulse indicator" : "indicator"} />
         <span>{status}</span>
-        <span className="registry-count">{counts.enabled}/{counts.total} plugins</span>
-        <span className="registry-count">{availableSkills} skills ready</span>
       </div>
 
-      <section aria-labelledby="plugins-heading">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Integration modules</p>
-            <h3 id="plugins-heading">Plugin Registry</h3>
-          </div>
-          <small>Settings persist in AgentDeck only</small>
-        </div>
-        <div className="plugin-grid">
-          {inventory?.plugins.map((plugin) => (
-            <article className="plugin-card" key={plugin.id}>
-              <div className="plugin-card-heading">
-                <div>
-                  <p className="eyebrow">{plugin.category}</p>
-                  <h3>{plugin.name}</h3>
-                </div>
-                <span className={plugin.enabled ? "plugin-state enabled" : "plugin-state"}>
-                  {plugin.enabled ? "Enabled" : "Disabled"}
-                </span>
-              </div>
-              <p>{plugin.description}</p>
-              <div className="tag-row">
-                {plugin.capabilities.map((capability) => (
-                  <span key={capability}>{capability}</span>
-                ))}
-              </div>
-              <button
-                className={plugin.enabled ? "secondary-button" : ""}
-                disabled={busyId !== null}
-                onClick={() => void togglePlugin(plugin.id, !plugin.enabled)}
-                type="button"
-              >
-                {busyId === plugin.id
-                  ? "Saving..."
-                  : plugin.enabled
-                    ? "Disable"
-                    : "Enable"}
-              </button>
-            </article>
-          ))}
-        </div>
-      </section>
+      <div className="reg-panes">
+        <PluginTable
+          busyId={busyId}
+          onRowClick={openPluginDrawer}
+          onToggle={(pluginId, enabled) => void togglePlugin(pluginId, enabled)}
+          plugins={plugins}
+        />
+        <SkillTable
+          busyId={busyId}
+          onRowClick={openSkillDrawer}
+          onRun={(skillId) => void logExecution(skillId)}
+          plugins={plugins}
+          skills={skills}
+        />
+      </div>
 
-      <section className="skills-section" aria-labelledby="skills-heading">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Reusable workflows</p>
-            <h3 id="skills-heading">Skill Library</h3>
-          </div>
-          <small>Execution action writes an audit record</small>
-        </div>
-        <div className="skill-grid">
-          {inventory?.skills.map((skill) => (
-            <article className="skill-card" key={skill.id}>
-              <div className="plugin-card-heading">
-                <div>
-                  <p className="eyebrow">{skill.tags.join(" / ")}</p>
-                  <h3>{skill.name}</h3>
-                </div>
-                <span className={skill.available ? "plugin-state enabled" : "plugin-state"}>
-                  {skill.available ? "Ready" : "Unavailable"}
-                </span>
-              </div>
-              <p>{skill.description}</p>
-              <dl>
-                <div>
-                  <dt>Required plugins</dt>
-                  <dd>
-                    {requiredPluginNames(skill, inventory.plugins).join(", ")}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Source</dt>
-                  <dd>{skill.source}</dd>
-                </div>
-              </dl>
-              <details>
-                <summary>View instructions</summary>
-                <p>{skill.instructions}</p>
-              </details>
-              <button
-                disabled={busyId !== null || !skill.available}
-                onClick={() => void logExecution(skill.id)}
-                type="button"
-              >
-                {busyId === skill.id ? "Logging..." : "Log execution"}
-              </button>
-            </article>
-          ))}
-        </div>
-      </section>
+      <RegistryDrawer
+        busyId={busyId}
+        kind={drawerKind}
+        onClose={closeDrawer}
+        onRun={(skillId) => void logExecution(skillId)}
+        onToggle={(pluginId, enabled) => void togglePlugin(pluginId, enabled)}
+        plugin={selectedPlugin}
+        plugins={plugins}
+        skill={selectedSkill}
+      />
     </section>
   );
 }
