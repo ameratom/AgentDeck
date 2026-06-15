@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   checkProviderAdapter,
   deleteProviderApiKey,
@@ -11,8 +11,11 @@ import type {
   ProviderAdapterStatus,
 } from "../../lib/types";
 import {
-  credentialLabel,
-  credentialStatusClass,
+  ProviderList,
+  type ProviderScopeFilter,
+} from "./components/ProviderList";
+import { ProviderDetail } from "./components/ProviderDetail";
+import {
   importOutcomeForProvider,
   replaceProvider,
 } from "./providerModel";
@@ -25,6 +28,8 @@ export function ProvidersView() {
     LegacyCredentialImportOutcome[]
   >([]);
   const [status, setStatus] = useState("Loading provider adapter inventory.");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [scopeFilter, setScopeFilter] = useState<ProviderScopeFilter>("all");
 
   async function refreshProviders(): Promise<void> {
     try {
@@ -59,6 +64,57 @@ export function ProvidersView() {
       cancelled = true;
     };
   }, []);
+
+  const filteredProviders = useMemo(() => {
+    if (scopeFilter === "all") {
+      return providers;
+    }
+    return providers.filter((provider) =>
+      scopeFilter === "local"
+        ? provider.authMode === "none"
+        : provider.authMode !== "none",
+    );
+  }, [providers, scopeFilter]);
+
+  useEffect(() => {
+    if (providers.length === 0) {
+      return;
+    }
+    if (selectedId === null) {
+      setSelectedId(providers[0].id);
+      return;
+    }
+    const selectedVisible = filteredProviders.some(
+      (provider) => provider.id === selectedId,
+    );
+    if (!selectedVisible && filteredProviders.length > 0) {
+      setSelectedId(filteredProviders[0].id);
+    }
+  }, [providers, filteredProviders, selectedId]);
+
+  const selectedProvider = useMemo(
+    () => providers.find((provider) => provider.id === selectedId) ?? null,
+    [providers, selectedId],
+  );
+
+  const onlineCount = providers.filter(
+    (provider) => provider.verifiedAvailable,
+  ).length;
+  const storedCount = providers.filter(
+    (provider) => provider.credentialStatus === "stored",
+  ).length;
+  const needKeyCount = providers.filter(
+    (provider) =>
+      provider.authMode !== "none" &&
+      (provider.credentialStatus === "missing" ||
+        provider.credentialStatus === "unreadable" ||
+        provider.credentialStatus === "import-failed"),
+  ).length;
+
+  const selectedBusy =
+    selectedProvider !== null && busyProvider === selectedProvider.id;
+  const importBusy = busyProvider === "legacy-import";
+  const anyBusy = busyProvider !== null;
 
   async function checkProvider(providerId: string): Promise<void> {
     setBusyProvider(providerId);
@@ -145,161 +201,105 @@ export function ProvidersView() {
     }
   }
 
+  const selectedImportOutcome =
+    selectedProvider === null
+      ? null
+      : importOutcomeForProvider(selectedProvider.id, importOutcomes);
+
   return (
-    <section className="workspace providers-workspace">
-      <header>
+    <section className="workspace providers-workspace providers-workspace--compact">
+      <header className="pv-compact-header">
         <div>
           <p className="eyebrow">Phase 4 / Adapters</p>
           <h2>Provider Adapters</h2>
-          <p>
+          <p className="pv-compact-subtitle">
             Inspect local and cloud model endpoints. Cloud checks run only when
             you select Check, and API keys are encrypted on this device.
           </p>
         </div>
-        <div className="provider-header-actions">
-          <button
-            className="secondary-button"
-            disabled={busyProvider !== null}
-            onClick={() => void importLegacyKeys()}
-            type="button"
-          >
-            {busyProvider === "legacy-import"
-              ? "Importing..."
-              : "Import existing Keychain keys"}
-          </button>
-          <span className="phase-badge">Encrypted on device</span>
+        <div className="pv-compact-header-meta">
+          <div className="provider-header-actions">
+            <button
+              className="secondary-button"
+              disabled={anyBusy}
+              onClick={() => void importLegacyKeys()}
+              type="button"
+            >
+              {importBusy ? "Importing..." : "Import existing Keychain keys"}
+            </button>
+            <span className="phase-badge">Encrypted on device</span>
+          </div>
+          <div className="pv-summary">
+            <div className="pv-scan-state" role="status">
+              <span
+                className={anyBusy ? "pulse indicator" : "indicator"}
+                aria-hidden="true"
+              />
+              <span>
+                {providers.length > 0
+                  ? `${providers.length} provider adapters`
+                  : status}
+              </span>
+            </div>
+            {providers.length > 0 ? (
+              <>
+                <span className="pv-pill pv-pill--on">
+                  <b>{onlineCount}</b> online
+                </span>
+                <span className="pv-pill">
+                  <b>{storedCount}</b> keys stored
+                </span>
+                {needKeyCount > 0 ? (
+                  <span className="pv-pill pv-pill--warn">
+                    <b>{needKeyCount}</b> need key
+                  </span>
+                ) : null}
+              </>
+            ) : null}
+          </div>
         </div>
       </header>
 
-      <p className="provider-page-status" role="status">
-        <span className={busyProvider ? "pulse indicator" : "indicator"} />
-        {status}
-      </p>
-
-      <section className="provider-grid" aria-label="Provider adapters">
-        {providers.map((provider) => {
-          const busy = busyProvider !== null;
-          const usesKey = provider.authMode !== "none";
-          const importOutcome = importOutcomeForProvider(
-            provider.id,
-            importOutcomes,
-          );
-          return (
-            <article className="provider-card" key={provider.id}>
-              <div className="provider-heading">
-                <div>
-                  <p className="eyebrow">{provider.kind}</p>
-                  <h3>{provider.name}</h3>
-                </div>
-                <span
-                  className={
-                    provider.verifiedAvailable
-                      ? "provider-health online"
-                      : "provider-health"
-                  }
-                >
-                  {provider.verifiedAvailable
-                    ? "Online"
-                    : provider.credentialStatus === "unreadable" ||
-                        provider.credentialStatus === "import-failed"
-                      ? "Needs attention"
-                      : "Unchecked"}
-                </span>
-              </div>
-
-              <dl>
-                <div>
-                  <dt>Endpoint</dt>
-                  <dd>{provider.baseUrl}</dd>
-                </div>
-                <div>
-                  <dt>Credential</dt>
-                  <dd className={credentialStatusClass(provider.credentialStatus)}>
-                    {credentialLabel(provider.credentialStatus)}
-                  </dd>
-                </div>
-                {importOutcome ? (
-                  <div>
-                    <dt>Last import</dt>
-                    <dd className={`import-outcome ${importOutcome.status}`}>
-                      {importOutcome.detail}
-                    </dd>
-                  </div>
-                ) : null}
-                <div>
-                  <dt>Capabilities</dt>
-                  <dd>{provider.capabilities.join(", ")}</dd>
-                </div>
-                <div>
-                  <dt>Models</dt>
-                  <dd>
-                    {provider.models.length > 0
-                      ? provider.models.map((model) => model.id).join(", ")
-                      : provider.health.detail}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Catalog</dt>
-                  <dd>
-                    {provider.catalogSource === "none"
-                      ? "Not loaded"
-                      : `${provider.catalogSource}${provider.verifiedAvailable ? " (verified)" : " (unverified)"}`}
-                  </dd>
-                </div>
-              </dl>
-
-              {usesKey ? (
-                <div className="credential-controls">
-                  {provider.id === "codex" ||
-                  provider.id === "openai-compatible" ? (
-                    <p>OpenAI-compatible and Codex share this encrypted key.</p>
-                  ) : null}
-                  <input
-                    aria-label={`${provider.name} API key`}
-                    autoComplete="off"
-                    disabled={busy}
-                    onChange={(event) =>
-                      setKeys((current) => ({
-                        ...current,
-                        [provider.id]: event.target.value,
-                      }))
-                    }
-                    placeholder="API key"
-                    type="password"
-                    value={keys[provider.id] ?? ""}
-                  />
-                  <button
-                    disabled={busy || !(keys[provider.id]?.trim())}
-                    onClick={() => void saveKey(provider.id)}
-                    type="button"
-                  >
-                    Save key
-                  </button>
-                  {provider.credentialStatus === "stored" ? (
-                    <button
-                      className="secondary-button"
-                      disabled={busy}
-                      onClick={() => void removeKey(provider)}
-                      type="button"
-                    >
-                      Remove
-                    </button>
-                  ) : null}
-                </div>
-              ) : null}
-
-              <button
-                className="provider-check"
-                disabled={busy}
-                onClick={() => void checkProvider(provider.id)}
-                type="button"
-              >
-                {busy ? "Checking..." : "Check provider"}
-              </button>
-            </article>
-          );
-        })}
-      </section>
+      <div className="pv-body">
+        <ProviderList
+          filter={scopeFilter}
+          onFilter={setScopeFilter}
+          onSelect={setSelectedId}
+          providers={filteredProviders}
+          selectedId={selectedId}
+        />
+        <ProviderDetail
+          busy={selectedBusy}
+          importOutcome={selectedImportOutcome}
+          keyValue={
+            selectedProvider === null ? "" : (keys[selectedProvider.id] ?? "")
+          }
+          onCheck={() => {
+            if (selectedProvider !== null) {
+              void checkProvider(selectedProvider.id);
+            }
+          }}
+          onKeyChange={(value) => {
+            if (selectedProvider !== null) {
+              setKeys((current) => ({
+                ...current,
+                [selectedProvider.id]: value,
+              }));
+            }
+          }}
+          onRemoveKey={() => {
+            if (selectedProvider !== null) {
+              void removeKey(selectedProvider);
+            }
+          }}
+          onSaveKey={() => {
+            if (selectedProvider !== null) {
+              void saveKey(selectedProvider.id);
+            }
+          }}
+          provider={selectedProvider}
+        />
+      </div>
     </section>
   );
 }
