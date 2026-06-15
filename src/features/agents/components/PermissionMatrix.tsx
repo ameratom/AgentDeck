@@ -13,11 +13,15 @@ interface PermissionMatrixProps {
 }
 
 const ACTION_LABELS: Record<string, { short: string; full: string }> = {
+  "read-config": { short: "Read", full: "Read config" },
+  "write-config": { short: "Write", full: "Write config" },
   "config-write": { short: "Config", full: "Config write" },
   "dispatch-handoff": { short: "Handoff", full: "Dispatch handoff" },
   "execute-skill": { short: "Skill", full: "Execute skill" },
-  "call-mcp-tool": { short: "MCP tool", full: "Call MCP tool" },
+  "call-mcp-tool": { short: "MCP", full: "Call MCP tool" },
 };
+
+const CALLER_COLUMN_PERCENT = 44;
 
 const CALLER_NOTES: Record<string, string> = {
   "agent:agentdeck": "Owns all actions",
@@ -59,6 +63,17 @@ export function PermissionMatrix({
       {matrix ? (
         <div className="ag-pm-wrap">
           <table className="ag-pm">
+            <colgroup>
+              <col style={{ width: `${CALLER_COLUMN_PERCENT}%` }} />
+              {matrix.actions.map((action) => (
+                <col
+                  key={action}
+                  style={{
+                    width: `${(100 - CALLER_COLUMN_PERCENT) / matrix.actions.length}%`,
+                  }}
+                />
+              ))}
+            </colgroup>
             <thead>
               <tr>
                 <th className="ag-pm-corner" scope="col">

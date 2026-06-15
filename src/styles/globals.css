@@ -4047,7 +4047,7 @@ pre {
   flex-direction: column;
   gap: 14px;
   height: 100vh;
-  padding: 22px 26px 20px;
+  padding: 18px 20px 16px;
   overflow: hidden;
   box-sizing: border-box;
 }
@@ -4131,9 +4131,9 @@ pre {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 470px;
+  grid-template-columns: minmax(0, 1fr) minmax(400px, 430px);
   grid-template-rows: minmax(0, 1fr);
-  gap: 14px;
+  gap: 12px;
 }
 
 .ag-panel {
@@ -4187,8 +4187,16 @@ pre {
 .ag-thead,
 .ag-trow {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) 128px 180px 70px 52px 30px;
+  grid-template-columns:
+    22px
+    minmax(120px, 1.6fr)
+    minmax(96px, 0.85fr)
+    minmax(72px, 1fr)
+    54px
+    38px
+    22px;
   align-items: center;
+  min-width: 520px;
 }
 
 .ag-thead {
@@ -4208,7 +4216,7 @@ pre {
 }
 
 .ag-tbody {
-  overflow-y: auto;
+  overflow: auto;
   min-height: 0;
   flex: 1;
 }
@@ -4400,6 +4408,8 @@ pre {
 
 table.ag-pm {
   width: 100%;
+  min-width: 390px;
+  table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
 }
@@ -4418,7 +4428,7 @@ table.ag-pm thead th {
 
 .ag-pm-corner {
   text-align: left;
-  padding: 9px 10px;
+  padding: 9px 12px;
   color: #647983;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 8.5px;
@@ -4428,46 +4438,60 @@ table.ag-pm thead th {
 }
 
 .ag-pm-acth {
-  padding: 9px 6px;
+  padding: 9px 2px;
   color: #647983;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 8.5px;
-  letter-spacing: 0.05em;
+  font-size: 8px;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   text-align: center;
   border-bottom: 1px solid #1c2730;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ag-pm-rowh {
   text-align: left;
-  padding: 11px 10px;
+  padding: 11px 12px;
   border-bottom: 1px solid #192129;
+  vertical-align: top;
 }
 
 .ag-pm-rowh b {
+  display: block;
   font-weight: 600;
   font-size: 12px;
   color: #e2eaee;
   text-transform: capitalize;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .ag-pm-rowh small {
   display: block;
-  margin-top: 2px;
+  margin-top: 3px;
   color: #5f7681;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 8px;
   letter-spacing: 0.04em;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 table.ag-pm td.ag-pm-cell {
   border-bottom: 1px solid #192129;
   text-align: center;
+  padding: 6px 2px;
+  vertical-align: middle;
 }
 
 .ag-ptog {
-  width: 62px;
-  padding: 6px 0;
+  width: 100%;
+  max-width: 52px;
+  padding: 5px 0;
+  margin: 0 auto;
+  display: block;
   border: 1px solid #3a3f4d;
   border-radius: 6px;
   color: #9aa6ad;
