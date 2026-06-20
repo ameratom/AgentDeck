@@ -72,7 +72,7 @@ The Chat layout commit (`ChatView.tsx` CSS-only restructure) did **not** change:
 - `routerAutoApplyModel.ts`
 - `applyRouteSuggestion` behavior
 
-The router bar placement changed visually (inside `chat-panel-body`), but the logic is unchanged.
+The router suggestion renders inside the active `chat-command-area`, but the routing logic is unchanged.
 
 ---
 

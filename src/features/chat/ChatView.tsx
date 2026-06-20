@@ -597,7 +597,7 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
               </label>
 
               <button
-                className="chat-toolbar-btn"
+                className="chat-settings-load-btn"
                 disabled={!selectedProvider || refreshingModels || sending}
                 onClick={() => {
                   if (selectedProvider) {
@@ -611,7 +611,7 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
 
               {previewBlocked ? (
                 <button
-                  className="inline-link-button chat-toolbar-link"
+                  className="inline-link-button chat-settings-providers-link"
                   onClick={onOpenProviders}
                   type="button"
                 >
@@ -666,7 +666,7 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
           )}
         </div>
 
-        <div className="chat-composer-area">
+        <div className="chat-command-area">
           {showRouterSuggestion && routeSuggestion ? (
             <div className="chat-router-suggestion">
               <div>
