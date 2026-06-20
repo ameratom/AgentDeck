@@ -95,8 +95,8 @@ export function PluginsView() {
     : { enabled: 0, total: 0 };
   const availableSkills =
     inventory?.skills.filter((skill) => skill.available).length ?? 0;
-  const plugins = inventory?.plugins ?? [];
-  const skills = inventory?.skills ?? [];
+  const plugins = useMemo(() => inventory?.plugins ?? [], [inventory]);
+  const skills = useMemo(() => inventory?.skills ?? [], [inventory]);
 
   const selectedPlugin = useMemo(
     () => plugins.find((plugin) => plugin.id === selectedPluginId) ?? null,

@@ -2,19 +2,23 @@ import { Channel } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   buildChatRequest,
+  describeChatSendBlock,
+  formatBubbleTimestamp,
   resolvePreferredModel,
   resolveSuggestedChatModel,
   selectDefaultProvider,
-  toChatHistory,
+  visibleChatMessages,
 } from "./chatModel";
 import {
   credentialLabel,
   providerCredentialBlocked,
   providerDispatchBlocked,
+  providerHasDispatchableModels,
 } from "../providers/providerModel";
 import {
   cancelStreamChat,
   checkProviderAdapter,
+  clearChatMessages,
   listProviderAdapters,
   loadAppSettings,
   loadChatMessages,
@@ -35,6 +39,7 @@ import type {
   ProjectContext,
   ProviderAdapterStatus,
 } from "../../lib/types";
+import { CmdBar } from "./cmdbar/CmdBar";
 
 interface ChatViewProps {
   project: ProjectContext | null;
@@ -56,10 +61,12 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [streamingContent, setStreamingContent] = useState("");
-  const [status, setStatus] = useState("Loading provider adapters...");
+  const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [refreshingModels, setRefreshingModels] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [enableAgentTools, setEnableAgentTools] = useState(false);
   const [routeSuggestionResult, setRouteSuggestionResult] =
     useState<RouteSuggestionResult | null>(null);
@@ -70,6 +77,7 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
   const lastAutoAppliedRef = useRef<string | null>(null);
   const userOverrodeProviderRef = useRef(false);
   const messageListRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const [dismissedSuggestionKey, setDismissedSuggestionKey] = useState<
     string | null
   >(null);
@@ -84,7 +92,6 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
     [selectedProvider],
   );
   const previewBlocked = providerCredentialBlocked(selectedProvider);
-  const dispatchBlocked = providerDispatchBlocked(selectedProvider);
   const routeSuggestionRequestKey = draft.trim()
     ? JSON.stringify(["agent:agentdeck", draft.trim()])
     : "";
@@ -99,18 +106,39 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
     dismissedSuggestionKey,
     routeSuggestionRequestKey,
   );
-  const canSend =
-    selectedProviderId !== "" &&
-    selectedModel !== "" &&
-    draft.trim() !== "" &&
-    !sending &&
-    !dispatchBlocked;
+  const sendBlockReason = describeChatSendBlock({
+    selectedProviderId,
+    selectedModel,
+    draft,
+    sending,
+    provider: selectedProvider,
+  });
+  const canSend = sendBlockReason === null && draft.trim() !== "";
+  const composerPlaceholder = loading
+    ? "Loading chat..."
+    : previewBlocked
+      ? "Add provider credentials in Settings (gear menu)."
+      : !selectedProvider
+        ? "Select a provider in the gear menu."
+        : !providerHasDispatchableModels(selectedProvider)
+          ? "Load models from the gear menu."
+          : selectedModel === ""
+            ? "Choose a model in the gear menu."
+            : "Message Grok…";
+  const composerHint = sending
+    ? "Streaming response…"
+    : sendBlockReason && draft.trim()
+      ? sendBlockReason
+      : status.startsWith("Chat failed") ||
+          status.startsWith("Model load failed") ||
+          status.startsWith("Chat setup failed")
+        ? status
+        : "";
 
   const refreshProviderModels = useCallback(async (
     providerId: string,
   ): Promise<ProviderAdapterStatus | null> => {
     setRefreshingModels(true);
-    setStatus(`Loading models for ${providerId}...`);
     try {
       const nextProvider = await checkProviderAdapter({ providerId });
       setProviders((current) =>
@@ -119,15 +147,11 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
         ),
       );
       setSelectedModel((current) =>
-        nextProvider.verifiedAvailable
+        nextProvider.models.length > 0
           ? resolvePreferredModel(nextProvider.models, current)
           : current,
       );
-      setStatus(
-        nextProvider.verifiedAvailable
-          ? `${nextProvider.name} ready with ${nextProvider.models.length} models.`
-          : `${nextProvider.name}: ${nextProvider.health.detail}`,
-      );
+      setStatus("");
       return nextProvider;
     } catch (error) {
       setStatus(`Model load failed: ${formatError(error)}`);
@@ -181,7 +205,7 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
           preferences.lastModelId,
         );
         setSelectedModel(modelId);
-        setStatus(`Loaded ${nextProviders.length} provider adapters.`);
+        setStatus("");
       } catch (error) {
         if (!cancelled) {
           setStatus(`Chat setup failed: ${formatError(error)}`);
@@ -220,9 +244,36 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
   }, [loading, refreshProviderModels, selectedProviderId]);
 
   useEffect(() => {
+    if (loading || sending || refreshingModels || !selectedProvider) {
+      return;
+    }
+    if (modelOptions.length === 0) {
+      return;
+    }
+
+    const hasSelectedModel = modelOptions.some(
+      (model) => model.id === selectedModel,
+    );
+    if (!hasSelectedModel) {
+      const timer = window.setTimeout(() => {
+        setSelectedModel(resolvePreferredModel(modelOptions, selectedModel));
+      }, 0);
+      return () => window.clearTimeout(timer);
+    }
+  }, [
+    loading,
+    modelOptions,
+    refreshingModels,
+    selectedModel,
+    selectedProvider,
+    sending,
+  ]);
+
+  useEffect(() => {
     userOverrodeProviderRef.current = false;
-    setDismissedSuggestionKey(null);
     lastAutoAppliedRef.current = null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDismissedSuggestionKey(null);
   }, [routeSuggestionRequestKey]);
 
   useEffect(() => {
@@ -266,20 +317,21 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
       );
       if (!targetProvider) {
         setStatus(
-          `Router target ${routeSuggestion.targetProviderId} is no longer available. Update the rule in Settings.`,
+          `Router target ${routeSuggestion.targetProviderId} is no longer available.`,
         );
         return;
       }
       if (providerCredentialBlocked(targetProvider)) {
         setStatus(
-          `${targetProvider.name} needs usable credentials before this suggestion can be applied.`,
+          `${targetProvider.name} needs credentials before this suggestion can be applied.`,
         );
         return;
       }
 
       setSelectedProviderId(targetProvider.id);
       const refreshedProvider = await refreshProviderModels(targetProvider.id);
-      if (!refreshedProvider?.verifiedAvailable) {
+      if (!refreshedProvider || providerDispatchBlocked(refreshedProvider)) {
+        setStatus(`${targetProvider.name} is not ready to chat yet.`);
         return;
       }
       setSelectedModel(
@@ -289,9 +341,10 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
         ),
       );
       userOverrodeProviderRef.current = false;
-      const prefix = mode === "auto" ? "Auto-applied" : "Applied";
       setStatus(
-        `${prefix} router rule "${routeSuggestion.ruleName}" (${routeSuggestion.reason})`,
+        mode === "auto"
+          ? `Auto-applied router rule "${routeSuggestion.ruleName}".`
+          : `Applied router rule "${routeSuggestion.ruleName}".`,
       );
     },
     [providers, refreshProviderModels, routeSuggestion],
@@ -327,7 +380,17 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
 
   async function submitMessage(): Promise<void> {
     const content = draft.trim();
-    if (!canSend || content === "") {
+    const blockReason = describeChatSendBlock({
+      selectedProviderId,
+      selectedModel,
+      draft: content,
+      sending,
+      provider: selectedProvider,
+    });
+    if (content === "" || blockReason) {
+      if (blockReason) {
+        setStatus(blockReason);
+      }
       return;
     }
 
@@ -344,12 +407,15 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
     setDraft("");
     setSending(true);
     setStreamingContent("");
-    setStatus("Streaming response...");
+    setStatus("");
 
     const channel = new Channel<ChatStreamEvent>();
     channel.onmessage = (event) => {
       if (event.event === "token") {
         setStreamingContent((current) => current + event.data.content);
+      }
+      if (event.event === "done") {
+        setStreamingContent("");
       }
       if (event.event === "error") {
         setStatus(`Chat failed: ${event.data.message}`);
@@ -357,7 +423,7 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
     };
 
     try {
-      const response = await streamChatMessage(
+      await streamChatMessage(
         buildChatRequest(
           conversationId,
           project?.id ?? null,
@@ -369,17 +435,10 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
         ),
         channel,
       );
-      setMessages([
-        ...currentMessages,
-        { ...optimisticUser, id: `pending:${Date.now()}` },
-        response.message,
-      ]);
+      const refreshedMessages = await loadChatMessages(conversationId);
+      setMessages(refreshedMessages);
       setStreamingContent("");
-      setStatus(
-        response.finishReason
-          ? `Response complete (${response.finishReason}).`
-          : "Response complete.",
-      );
+      setStatus("");
     } catch (error) {
       const detail = formatError(error);
       setMessages(currentMessages);
@@ -397,6 +456,36 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
     setStatus("Chat stream cancelled.");
   }
 
+  const requestClearConversation = useCallback(() => {
+    if (sending || clearing || visibleChatMessages(messages).length === 0) {
+      return;
+    }
+    setClearConfirmOpen(true);
+  }, [clearing, messages, sending]);
+
+  async function clearConversation(): Promise<void> {
+    if (sending || clearing) {
+      return;
+    }
+    setClearing(true);
+    try {
+      await clearChatMessages(conversationId);
+      const refreshedMessages = await loadChatMessages(conversationId);
+      setMessages(refreshedMessages);
+      setStreamingContent("");
+      setDraft("");
+      setRouteSuggestionResult(null);
+      setDismissedSuggestionKey(null);
+      setStatus("Conversation cleared.");
+      setClearConfirmOpen(false);
+      composerRef.current?.focus();
+    } catch (error) {
+      setStatus(`Clear failed: ${formatError(error)}`);
+    } finally {
+      setClearing(false);
+    }
+  }
+
   const renderedMessages =
     streamingContent.trim() !== ""
       ? [
@@ -411,156 +500,191 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
           },
         ]
       : messages;
-  const storedMessageCount = toChatHistory(messages).length;
+  const visibleMessages = visibleChatMessages(renderedMessages);
 
   useEffect(() => {
     const list = messageListRef.current;
     if (!list) {
       return;
     }
-    list.scrollTop = list.scrollHeight;
-  }, [renderedMessages.length, streamingContent]);
+    const frame = window.requestAnimationFrame(() => {
+      list.scrollTop = list.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [visibleMessages.length, streamingContent]);
+
+  useEffect(() => {
+    if (!clearConfirmOpen) {
+      return;
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !clearing) {
+        setClearConfirmOpen(false);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [clearConfirmOpen, clearing]);
 
   return (
-    <section className="workspace chat-workspace chat-workspace--compact">
-      <header className="chat-compact-header">
-        <div>
-          <p className="eyebrow">Phase 4 / Agentic OS Chat</p>
-          <h2>Unified Chat</h2>
-          <p className="chat-compact-subtitle">
-            Route conversation across LM Studio, Grok, Claude, Codex, and Claude
-            Code with streaming responses and persisted local history.
-          </p>
-          <p className="chat-compact-scope">
-            {project
-              ? `Scoped to ${project.name} at ${project.path}`
-              : "No active project. Chat is using the global conversation."}
-          </p>
-        </div>
-        <span className="phase-badge">Multi-provider</span>
-      </header>
-
-      <section className="chat-panel">
-        <div className="chat-toolbar">
-          <label className="chat-field chat-field--provider">
-            <span>Provider</span>
-            <select
-              disabled={loading || sending || providers.length === 0}
-              onChange={(event) => {
-                const nextProviderId = event.target.value;
-                userOverrodeProviderRef.current = true;
-                setSelectedProviderId(nextProviderId);
-                const nextProvider = providers.find(
-                  (provider) => provider.id === nextProviderId,
-                );
-                setSelectedModel((current) =>
-                  resolvePreferredModel(nextProvider?.models ?? [], current),
-                );
-              }}
-              value={selectedProviderId}
-            >
-              {providers.map((provider) => (
-                <option key={provider.id} value={provider.id}>
-                  {provider.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="chat-field chat-field--model">
-            <span>Model</span>
-            <select
-              disabled={
-                loading || sending || !selectedProvider || modelOptions.length === 0
-              }
-              onChange={(event) => {
-                userOverrodeProviderRef.current = true;
-                setSelectedModel(event.target.value);
-              }}
-              value={selectedModel}
-            >
-              {modelOptions.length > 0 ? (
-                modelOptions.map((model) => (
-                  <option key={model.id} value={model.id}>
-                    {model.id}
-                  </option>
-                ))
-              ) : (
-                <option value="">Load models for provider</option>
-              )}
-            </select>
-          </label>
-
-          <button
-            className="chat-toolbar-btn"
-            disabled={!selectedProvider || refreshingModels || sending}
-            onClick={() => {
-              if (selectedProvider) {
-                void refreshProviderModels(selectedProvider.id);
-              }
-            }}
-            type="button"
-          >
-            {refreshingModels ? "Loading..." : "Load models"}
-          </button>
-
-          {selectedProviderId === "xai" ? (
-            <label className="chat-tools-toggle">
-              <input
-                checked={enableAgentTools}
-                disabled={loading || sending}
-                onChange={(event) => setEnableAgentTools(event.target.checked)}
-                type="checkbox"
-              />
-              <span>AgentDeck tools</span>
-            </label>
-          ) : null}
-
-          {previewBlocked ? (
+    <section className="workspace chat-workspace chat-workspace--conversation">
+      <section className="chat-conversation-panel">
+        <header className="chat-conversation-topbar">
+          <div className="chat-conversation-topbar-actions">
             <button
-              className="inline-link-button chat-toolbar-link"
-              onClick={onOpenProviders}
+              className="chat-clear-chat-btn"
+              disabled={
+                sending || clearing || visibleMessages.length === 0
+              }
+              onClick={requestClearConversation}
               type="button"
             >
-              Open Providers
+              {clearing ? "Clearing…" : "Clear chat"}
             </button>
-          ) : null}
+            <details className="chat-settings-menu">
+              <summary aria-label="Chat settings">Settings</summary>
+            <div className="chat-settings-body">
+              <label className="chat-field chat-field--provider">
+                <span>Provider</span>
+                <select
+                  disabled={loading || sending || providers.length === 0}
+                  onChange={(event) => {
+                    const nextProviderId = event.target.value;
+                    userOverrodeProviderRef.current = true;
+                    setSelectedProviderId(nextProviderId);
+                    const nextProvider = providers.find(
+                      (provider) => provider.id === nextProviderId,
+                    );
+                    setSelectedModel((current) =>
+                      resolvePreferredModel(nextProvider?.models ?? [], current),
+                    );
+                  }}
+                  value={selectedProviderId}
+                >
+                  {providers.map((provider) => (
+                    <option key={provider.id} value={provider.id}>
+                      {provider.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-          {selectedProvider ? (
-            <span className="provider-health chat-toolbar-health">
-              {credentialLabel(selectedProvider.credentialStatus)}
-              {selectedProvider.catalogSource !== "none"
-                ? ` / ${selectedProvider.catalogSource} catalog`
-                : ""}
-            </span>
-          ) : null}
+              <label className="chat-field chat-field--model">
+                <span>Model</span>
+                <select
+                  disabled={
+                    loading ||
+                    sending ||
+                    !selectedProvider ||
+                    modelOptions.length === 0
+                  }
+                  onChange={(event) => {
+                    userOverrodeProviderRef.current = true;
+                    setSelectedModel(event.target.value);
+                  }}
+                  value={selectedModel}
+                >
+                  {modelOptions.length > 0 ? (
+                    modelOptions.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.id}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="">Load models</option>
+                  )}
+                </select>
+              </label>
+
+              <button
+                className="chat-toolbar-btn"
+                disabled={!selectedProvider || refreshingModels || sending}
+                onClick={() => {
+                  if (selectedProvider) {
+                    void refreshProviderModels(selectedProvider.id);
+                  }
+                }}
+                type="button"
+              >
+                {refreshingModels ? "Loading…" : "Load models"}
+              </button>
+
+              {previewBlocked ? (
+                <button
+                  className="inline-link-button chat-toolbar-link"
+                  onClick={onOpenProviders}
+                  type="button"
+                >
+                  Open Providers
+                </button>
+              ) : null}
+
+              {selectedProvider ? (
+                <span className="chat-settings-meta">
+                  {credentialLabel(selectedProvider.credentialStatus)}
+                  {selectedProvider.catalogSource !== "none"
+                    ? ` · ${selectedProvider.catalogSource}`
+                    : ""}
+                  {modelOptions.length === 0 && selectedProvider.health.detail
+                    ? ` · ${selectedProvider.health.detail}`
+                    : ""}
+                </span>
+              ) : null}
+
+            </div>
+            </details>
+          </div>
+        </header>
+
+        <div
+          aria-label="Chat messages"
+          aria-live="polite"
+          className="chat-thread"
+          ref={messageListRef}
+        >
+          {visibleMessages.length > 0 ? (
+            visibleMessages.map((message, index) => (
+              <div
+                className={`chat-bubble-row chat-bubble-row--${message.role}`}
+                key={message.id ?? `message-${index}`}
+              >
+                <div className={`chat-bubble chat-bubble--${message.role}`}>
+                  <p>{message.content}</p>
+                </div>
+                {formatBubbleTimestamp(message.createdAt) ? (
+                  <span className="chat-bubble-time">
+                    {formatBubbleTimestamp(message.createdAt)}
+                  </span>
+                ) : null}
+              </div>
+            ))
+          ) : (
+            <div className="chat-empty-state">
+              <h3>Start a conversation</h3>
+              <p>Messages are saved locally on this Mac.</p>
+            </div>
+          )}
         </div>
 
-        <p className="chat-status-strip" role="status">
-          <span className={sending || loading ? "pulse indicator" : "indicator"} />
-          <span className="chat-status-text">{status}</span>
-          <span className="chat-status-count">
-            {storedMessageCount} stored message{storedMessageCount === 1 ? "" : "s"}
-          </span>
-        </p>
-
-        <div className="chat-panel-body">
+        <div className="chat-composer-area">
           {showRouterSuggestion && routeSuggestion ? (
             <div className="chat-router-suggestion">
               <div>
-                <strong>
-                  Router suggestion: {routeSuggestion.ruleName}
+                <p>
+                  <strong>Router: {routeSuggestion.ruleName}</strong>
                   {displayAutoAppliedKey ===
-                  routerAutoApplyKey(routeSuggestionRequestKey, routeSuggestion) ? (
+                  routerAutoApplyKey(
+                    routeSuggestionRequestKey,
+                    routeSuggestion,
+                  ) ? (
                     <span className="router-auto-badge">Auto-applied</span>
                   ) : null}
-                </strong>
+                </p>
                 <p>
                   Route to {routeSuggestion.targetProviderId}
                   {routeSuggestion.targetModelId
                     ? ` / ${routeSuggestion.targetModelId}`
                     : ""}
-                  . {routeSuggestion.reason}
                 </p>
               </div>
               <div className="router-suggestion-actions">
@@ -584,91 +708,76 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
                   onClick={() => void applyRouteSuggestion("manual")}
                   type="button"
                 >
-                  Apply suggestion
+                  Apply
                 </button>
               </div>
             </div>
           ) : null}
 
-          <div
-            className="message-list"
-            aria-label="Chat messages"
-            ref={messageListRef}
-          >
-            {renderedMessages.length > 0 ? (
-              renderedMessages.map((message, index) => (
-                <article
-                  className={`message-card ${message.role}`}
-                  key={message.id ?? index}
-                >
-                  <div>
-                    <strong>{message.role}</strong>
-                    <span>{message.createdAt ?? "pending"}</span>
-                  </div>
-                  <p>{message.content}</p>
-                </article>
-              ))
-            ) : (
-              <div className="empty-chat">
-                <h3>No messages yet</h3>
-                <p>
-                  Pick a provider and model, then send a prompt. AgentDeck stores
-                  the exchange locally after the stream completes.
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <form
-          className="composer"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void submitMessage();
-          }}
-        >
-          <textarea
-            aria-label="Message"
-            disabled={loading || selectedModel === "" || dispatchBlocked}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                void submitMessage();
-              }
-            }}
-            placeholder={
-              previewBlocked
-                ? "Import or save provider credentials before chatting."
-                : selectedProvider && !selectedProvider.verifiedAvailable
-                  ? "Check this provider successfully before chatting."
-                : "Ask any configured agent something..."
-            }
-            rows={2}
-            value={draft}
+          <CmdBar
+            canSend={canSend}
+            clearing={clearing}
+            composerHint={composerHint}
+            composerPlaceholder={composerPlaceholder}
+            composerRef={composerRef}
+            draft={draft}
+            enableAgentTools={enableAgentTools}
+            loading={loading}
+            onClear={requestClearConversation}
+            onStop={() => void stopStreaming()}
+            onSubmit={() => void submitMessage()}
+            previewBlocked={previewBlocked}
+            project={project}
+            selectedModel={selectedModel}
+            selectedProviderId={selectedProviderId}
+            sending={sending}
+            setDraft={setDraft}
+            setEnableAgentTools={setEnableAgentTools}
+            visibleMessageCount={visibleMessages.length}
           />
-          <div className="composer-foot">
-            <span className="composer-count">
-              {storedMessageCount} stored message
-              {storedMessageCount === 1 ? "" : "s"} in this conversation
-            </span>
-            <div className="chat-actions">
-              {sending ? (
-                <button
-                  className="secondary-button chat-stop-btn"
-                  onClick={() => void stopStreaming()}
-                  type="button"
-                >
-                  Stop
-                </button>
-              ) : null}
-              <button className="chat-send-btn" disabled={!canSend} type="submit">
-                {sending ? "Streaming..." : "Send"}
+        </div>
+      </section>
+
+      {clearConfirmOpen ? (
+        <div
+          className="chat-clear-confirm-backdrop"
+          onClick={() => {
+            if (!clearing) {
+              setClearConfirmOpen(false);
+            }
+          }}
+          role="presentation"
+        >
+          <div
+            aria-labelledby="chat-clear-confirm-title"
+            aria-modal="true"
+            className="chat-clear-confirm-dialog"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+          >
+            <h3 id="chat-clear-confirm-title">Clear this conversation?</h3>
+            <p>This cannot be undone. Messages are removed from this Mac only.</p>
+            <div className="chat-clear-confirm-actions">
+              <button
+                className="secondary-button"
+                disabled={clearing}
+                onClick={() => setClearConfirmOpen(false)}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="chat-clear-confirm-danger"
+                disabled={clearing}
+                onClick={() => void clearConversation()}
+                type="button"
+              >
+                {clearing ? "Clearing…" : "Clear"}
               </button>
             </div>
           </div>
-        </form>
-      </section>
+        </div>
+      ) : null}
     </section>
   );
 }

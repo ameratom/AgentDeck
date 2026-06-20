@@ -5,6 +5,9 @@ src-tauri/target/
 .DS_Store
 scripts/notarize.local.env
 scripts/chatgpt-mcp-tunnel.local.env*
+scripts/composer-bridge.local.env
+.tmp-*
+*.code-workspace
 Installer/
 Restart/
 .claude/settings.local.json

@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use tauri::AppHandle;
 
 use crate::models::{
@@ -133,11 +135,20 @@ pub async fn load_audit_events(
 ) -> Result<AuditEventsPage, String> {
     let database_path = storage::database_path(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let connection = storage::open_database(&database_path)?;
-        storage::query_audit_events(&connection, limit, offset, filter.as_deref())
+        load_audit_events_from_path(&database_path, limit, offset, filter.as_deref())
     })
     .await
     .map_err(|error| format!("audit load task failed: {error}"))?
+}
+
+fn load_audit_events_from_path(
+    database_path: &Path,
+    limit: u32,
+    offset: u32,
+    filter: Option<&str>,
+) -> Result<AuditEventsPage, String> {
+    let connection = storage::open_database(database_path)?;
+    storage::query_audit_events(&connection, limit, offset, filter)
 }
 
 #[cfg(test)]
@@ -221,6 +232,64 @@ mod tests {
             .events
             .iter()
             .all(|event| event.action.contains("handoff") || event.model.contains("grok")));
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn load_audit_events_enriches_handoff_rows_with_linked_run_id() {
+        let path = temp_database_path();
+        let connection = storage::open_database(&path).expect("open database");
+        connection
+            .execute(
+                "INSERT INTO audit_events
+                 (id, action, status, model, conversation_id, duration_ms, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params![
+                    "audit:handoff-1",
+                    "handoff.dispatch",
+                    "completed",
+                    "grok-4.3",
+                    "thread:handoff-1",
+                    120,
+                    "2026-06-14T12:00:00Z"
+                ],
+            )
+            .expect("insert audit event");
+        connection
+            .execute(
+                "INSERT INTO handoff_runs
+                 (id, project_id, thread_id, source_agent_id, source_agent_name,
+                  target_provider_id, target_provider_name, target_model_id,
+                  title, task, context, status, output, error, approvals,
+                  audit_ref, created_at, updated_at)
+                 VALUES (?1, NULL, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, NULL, ?13, ?14, ?15, ?16)",
+                rusqlite::params![
+                    "run:linked",
+                    "thread:handoff-1",
+                    "agent:codex",
+                    "Codex",
+                    "provider:xai:grok",
+                    "xAI Grok",
+                    "grok-4.3",
+                    "Review handoff",
+                    "Summarize next steps",
+                    "",
+                    "completed",
+                    "done",
+                    "[\"user-approved\"]",
+                    "audit:handoff-1",
+                    "2026-06-14T12:00:00Z",
+                    "2026-06-14T12:00:01Z"
+                ],
+            )
+            .expect("insert handoff run");
+
+        drop(connection);
+        let page = super::load_audit_events_from_path(&path, 10, 0, None)
+            .expect("load audit events command data");
+        assert_eq!(page.events.len(), 1);
+        assert_eq!(page.events[0].run_id.as_deref(), Some("run:linked"));
 
         let _ = fs::remove_file(path);
     }

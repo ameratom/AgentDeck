@@ -5,6 +5,7 @@ import { AgentsView } from "../features/agents/AgentsView";
 import { AuditView } from "../features/audit/AuditView";
 import { ChatView } from "../features/chat/ChatView";
 import { EntityDrawer } from "../features/graph/EntityDrawer";
+import { EntitySelector } from "../features/graph/EntitySelector";
 import { GraphCanvas } from "../features/graph/GraphCanvas";
 import { OrbitalGraph } from "../features/graph/OrbitalGraph";
 import { HandoffView } from "../features/handoffs/HandoffView";
@@ -393,10 +394,6 @@ function GraphView({
   const [useOrbital, setUseOrbital] = useState(true);
   const entities = useMemo(() => scan?.entities ?? [], [scan]);
 
-  const sortedEntities = useMemo(() => {
-    return [...entities].sort((a, b) => a.name.localeCompare(b.name));
-  }, [entities]);
-
   const clearSelection = () => {
     onSelect(null);
   };
@@ -415,22 +412,12 @@ function GraphView({
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          {/* Searchable Entity Selector would go here - using native select for now */}
-          <select
-            className="entity-dropdown"
-            value={selectedEntity?.id ?? ""}
-            onChange={(e) => {
-              const entity = entities.find((en) => en.id === e.target.value);
-              if (entity) onSelect(entity);
-            }}
-          >
-            <option value="">Select entity to center...</option>
-            {sortedEntities.map((entity) => (
-              <option key={entity.id} value={entity.id}>
-                {entity.name} ({entity.entityType})
-              </option>
-            ))}
-          </select>
+          <EntitySelector
+            entities={entities}
+            onSelect={onSelect}
+            placeholder="Select entity to center..."
+            selectedId={selectedEntity?.id ?? null}
+          />
 
           {selectedEntity && (
             <button

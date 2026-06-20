@@ -1652,6 +1652,53 @@ mod storage_tests {
     }
 
     #[test]
+    fn app_settings_default_to_menu_bar_service_mode() {
+        let path = std::env::temp_dir().join(format!(
+            "agentdeck-presence-defaults-{}.sqlite3",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        let settings = load_app_settings(&path).expect("load app settings");
+        assert!(settings.menu_bar_service_mode);
+        assert!(settings.start_hidden);
+        assert!(settings.close_hides_to_menu_bar);
+        assert!(!settings.launch_at_login);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn app_settings_persist_presence_fields() {
+        let path = std::env::temp_dir().join(format!(
+            "agentdeck-presence-persist-{}.sqlite3",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        let updated = update_app_settings(
+            &path,
+            &AppSettings {
+                menu_bar_service_mode: false,
+                start_hidden: false,
+                close_hides_to_menu_bar: false,
+                launch_at_login: true,
+                ..load_app_settings(&path).expect("load defaults")
+            },
+        )
+        .expect("update app settings");
+        assert!(!updated.menu_bar_service_mode);
+        assert!(!updated.start_hidden);
+        assert!(!updated.close_hides_to_menu_bar);
+        assert!(updated.launch_at_login);
+
+        let reloaded = load_app_settings(&path).expect("reload app settings");
+        assert_eq!(reloaded.menu_bar_service_mode, updated.menu_bar_service_mode);
+        assert_eq!(reloaded.start_hidden, updated.start_hidden);
+        assert_eq!(
+            reloaded.close_hides_to_menu_bar,
+            updated.close_hides_to_menu_bar
+        );
+        assert_eq!(reloaded.launch_at_login, updated.launch_at_login);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn enrich_audit_events_links_handoff_dispatch_rows_to_runs() {
         let path = std::env::temp_dir().join(format!(
             "agentdeck-audit-run-link-{}.sqlite3",

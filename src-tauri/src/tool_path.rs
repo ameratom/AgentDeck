@@ -1,10 +1,10 @@
 //! Enriched executable lookup for GUI apps with a minimal macOS PATH.
 
+use crate::models::DetectedProcess;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
-use crate::models::DetectedProcess;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PathSource {
@@ -31,6 +31,14 @@ pub struct ResolvedExecutable {
     pub source: PathSource,
 }
 
+pub fn enriched_path_env(processes: &[DetectedProcess]) -> String {
+    search_directories(processes)
+        .into_iter()
+        .map(|(directory, _)| directory.to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join(if cfg!(windows) { ";" } else { ":" })
+}
+
 pub fn find_executable(name: &str, processes: &[DetectedProcess]) -> Option<ResolvedExecutable> {
     for (directory, source) in search_directories(processes) {
         let candidate = directory.join(name);
@@ -52,11 +60,21 @@ pub fn search_directories(processes: &[DetectedProcess]) -> Vec<(PathBuf, PathSo
         push_directory(&mut directories, &mut seen, directory, PathSource::Process);
     }
     for directory in login_shell_path_directories() {
-        push_directory(&mut directories, &mut seen, directory, PathSource::LoginShell);
+        push_directory(
+            &mut directories,
+            &mut seen,
+            directory,
+            PathSource::LoginShell,
+        );
     }
     if let Some(path) = env::var_os("PATH") {
         for directory in env::split_paths(&path) {
-            push_directory(&mut directories, &mut seen, directory, PathSource::Inherited);
+            push_directory(
+                &mut directories,
+                &mut seen,
+                directory,
+                PathSource::Inherited,
+            );
         }
     }
     for directory in common_macos_directories() {
@@ -132,6 +150,7 @@ fn common_macos_directories() -> Vec<PathBuf> {
     if let Some(home) = env::var_os("HOME").map(PathBuf::from) {
         directories.push(home.join(".cargo/bin"));
         directories.push(home.join(".local/bin"));
+        directories.push(home.join(".npm-global/bin"));
         directories.push(home.join(".codex/bin"));
         directories.push(home.join(".nvm/current/bin"));
         if let Ok(entries) = std::fs::read_dir(home.join(".nvm/versions/node")) {
@@ -182,10 +201,7 @@ mod tests {
             category: "runtime".to_owned(),
         }];
         let directories = search_directories(&processes);
-        assert_eq!(
-            directories.first().map(|(path, _)| path),
-            Some(&directory)
-        );
+        assert_eq!(directories.first().map(|(path, _)| path), Some(&directory));
         let _ = std::fs::remove_dir_all(directory);
     }
 }

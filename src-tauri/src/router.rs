@@ -203,4 +203,64 @@ mod tests {
         };
         assert!(suggest_route(&rules, &request).is_none());
     }
+
+    #[test]
+    fn matches_review_keyword_as_whole_word() {
+        let rules = vec![sample_rule(
+            "review-rule",
+            0,
+            None,
+            Some("review"),
+            "lm-studio",
+        )];
+        let request = HandoffRouteRequest {
+            source_agent_id: "agent:agentdeck".to_owned(),
+            title: "Chat prompt".to_owned(),
+            task: "review the diff before merging".to_owned(),
+        };
+        let suggestion = suggest_route(&rules, &request).expect("suggestion");
+        assert_eq!(suggestion.target_provider_id, "lm-studio");
+    }
+
+    #[test]
+    fn matches_multi_word_keywords() {
+        let rules = vec![sample_rule(
+            "write-code-rule",
+            0,
+            None,
+            Some("write code"),
+            "codex",
+        )];
+        let request = HandoffRouteRequest {
+            source_agent_id: "agent:agentdeck".to_owned(),
+            title: "Chat prompt".to_owned(),
+            task: "please write code for the handler".to_owned(),
+        };
+        let suggestion = suggest_route(&rules, &request).expect("suggestion");
+        assert_eq!(suggestion.target_provider_id, "codex");
+
+        let negative = HandoffRouteRequest {
+            source_agent_id: "agent:agentdeck".to_owned(),
+            title: "Chat prompt".to_owned(),
+            task: "rewrite codec settings".to_owned(),
+        };
+        assert!(suggest_route(&rules, &negative).is_none());
+    }
+
+    #[test]
+    fn does_not_match_code_keyword_inside_barcode() {
+        let rules = vec![sample_rule(
+            "code-rule",
+            0,
+            None,
+            Some("code"),
+            "codex",
+        )];
+        let request = HandoffRouteRequest {
+            source_agent_id: "agent:agentdeck".to_owned(),
+            title: "Chat prompt".to_owned(),
+            task: "scan this barcode for inventory".to_owned(),
+        };
+        assert!(suggest_route(&rules, &request).is_none());
+    }
 }

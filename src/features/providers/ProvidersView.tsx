@@ -81,14 +81,15 @@ export function ProvidersView() {
       return;
     }
     if (selectedId === null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedId(providers[0].id);
-      return;
-    }
-    const selectedVisible = filteredProviders.some(
-      (provider) => provider.id === selectedId,
-    );
-    if (!selectedVisible && filteredProviders.length > 0) {
-      setSelectedId(filteredProviders[0].id);
+    } else {
+      const selectedVisible = filteredProviders.some(
+        (provider) => provider.id === selectedId,
+      );
+      if (!selectedVisible && filteredProviders.length > 0) {
+        setSelectedId(filteredProviders[0].id);
+      }
     }
   }, [providers, filteredProviders, selectedId]);
 

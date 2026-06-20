@@ -190,6 +190,38 @@ mod tests {
                     .is_some(),
                 "{name} missing key pattern"
             );
+            if name == "dispatch_handoff" {
+                let source = properties
+                    .get("sourceAgentId")
+                    .and_then(Value::as_object)
+                    .expect("sourceAgentId object");
+                let provider = properties
+                    .get("targetProviderId")
+                    .and_then(Value::as_object)
+                    .expect("targetProviderId object");
+                let source_examples = source
+                    .get("examples")
+                    .and_then(Value::as_array)
+                    .filter(|examples| !examples.is_empty())
+                    .unwrap_or_else(|| panic!("{name} missing sourceAgentId examples"));
+                let provider_examples = provider
+                    .get("examples")
+                    .and_then(Value::as_array)
+                    .filter(|examples| !examples.is_empty())
+                    .unwrap_or_else(|| panic!("{name} missing targetProviderId examples"));
+                assert!(
+                    source_examples
+                        .iter()
+                        .any(|example| example.as_str() == Some("agent:codex")),
+                    "{name} missing agent:codex sourceAgentId example"
+                );
+                assert!(
+                    provider_examples.iter().any(|example| {
+                        example.as_str() == Some("provider:lmstudio:http-localhost-1234-v1")
+                    }),
+                    "{name} missing provider:lmstudio:http-localhost-1234-v1 targetProviderId example"
+                );
+            }
         }
     }
 }

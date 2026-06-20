@@ -78,28 +78,42 @@ pub fn hide_main_window(app: &AppHandle) -> Result<(), String> {
     apply_presence(app, AppPresence::Background)
 }
 
+pub fn resolve_startup_presence(settings: &AppSettings, dev_override: bool) -> AppPresence {
+    if dev_override {
+        return AppPresence::Foreground;
+    }
+    if should_start_hidden(settings) {
+        AppPresence::Background
+    } else {
+        AppPresence::Foreground
+    }
+}
+
+pub fn resolve_sync_presence(
+    settings: &AppSettings,
+    window_visible: bool,
+    dev_override: bool,
+) -> AppPresence {
+    if dev_override || !settings.menu_bar_service_mode {
+        AppPresence::Foreground
+    } else if window_visible {
+        AppPresence::Foreground
+    } else {
+        AppPresence::Background
+    }
+}
+
 pub fn apply_startup_presence(app: &AppHandle) -> Result<(), String> {
     let settings = load_settings(app)?;
-    if dev_forces_foreground() {
-        return apply_presence(app, AppPresence::Foreground);
-    }
-    if should_start_hidden(&settings) {
-        apply_presence(app, AppPresence::Background)
-    } else {
-        apply_presence(app, AppPresence::Foreground)
-    }
+    let presence = resolve_startup_presence(&settings, dev_forces_foreground());
+    apply_presence(app, presence)
 }
 
 pub fn sync_presence_from_settings(app: &AppHandle) -> Result<(), String> {
     let settings = load_settings(app)?;
-    if dev_forces_foreground() || !settings.menu_bar_service_mode {
-        return apply_presence(app, AppPresence::Foreground);
-    }
-    if is_main_window_visible(app) {
-        apply_presence(app, AppPresence::Foreground)
-    } else {
-        apply_presence(app, AppPresence::Background)
-    }
+    let visible = is_main_window_visible(app);
+    let presence = resolve_sync_presence(&settings, visible, dev_forces_foreground());
+    apply_presence(app, presence)
 }
 
 #[cfg(test)]
@@ -140,5 +154,56 @@ mod tests {
 
         settings.onboarding_complete = false;
         assert!(!should_start_hidden(&settings));
+    }
+
+    #[test]
+    fn start_hidden_requires_service_mode() {
+        let mut settings = base_settings();
+        settings.menu_bar_service_mode = false;
+        assert!(!should_start_hidden(&settings));
+    }
+
+    #[test]
+    fn resolve_startup_presence_hides_when_configured() {
+        let settings = base_settings();
+        assert_eq!(
+            resolve_startup_presence(&settings, false),
+            AppPresence::Background
+        );
+        assert_eq!(
+            resolve_startup_presence(&settings, true),
+            AppPresence::Foreground
+        );
+
+        let mut incomplete = settings.clone();
+        incomplete.onboarding_complete = false;
+        assert_eq!(
+            resolve_startup_presence(&incomplete, false),
+            AppPresence::Foreground
+        );
+    }
+
+    #[test]
+    fn resolve_sync_presence_follows_window_and_service_mode() {
+        let settings = base_settings();
+        assert_eq!(
+            resolve_sync_presence(&settings, true, false),
+            AppPresence::Foreground
+        );
+        assert_eq!(
+            resolve_sync_presence(&settings, false, false),
+            AppPresence::Background
+        );
+
+        let mut dock_app = settings.clone();
+        dock_app.menu_bar_service_mode = false;
+        assert_eq!(
+            resolve_sync_presence(&dock_app, false, false),
+            AppPresence::Foreground
+        );
+        assert_eq!(
+            resolve_sync_presence(&settings, false, true),
+            AppPresence::Foreground
+        );
     }
 }

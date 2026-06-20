@@ -79,6 +79,10 @@ export function loadChatMessages(
   return invoke<ChatMessage[]>("load_chat_messages", { conversationId });
 }
 
+export function clearChatMessages(conversationId: string): Promise<void> {
+  return invoke<void>("clear_chat_messages", { conversationId });
+}
+
 export function listProviderAdapters(): Promise<ProviderAdapterStatus[]> {
   return invoke<ProviderAdapterStatus[]>("list_provider_adapters");
 }
@@ -254,6 +258,22 @@ export function updateAppSettings(
   request: AppSettingsUpdateRequest,
 ): Promise<AppSettings> {
   return invoke<AppSettings>("update_app_settings", { request });
+}
+
+export function syncAppPresence(): Promise<void> {
+  return invoke<void>("sync_app_presence");
+}
+
+export function showMainWindow(): Promise<void> {
+  return invoke<void>("show_main_window");
+}
+
+export function hideMainWindow(): Promise<void> {
+  return invoke<void>("hide_main_window");
+}
+
+export function isMainWindowVisible(): Promise<boolean> {
+  return invoke<boolean>("is_main_window_visible");
 }
 
 export function completeOnboarding(): Promise<AppSettings> {

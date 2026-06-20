@@ -143,7 +143,7 @@ export function summarizeInventory(scan: EnvironmentScan): InventorySummary {
   };
 }
 
-export function toolAvailable(tools: ToolStatus[], name: string): boolean {
+function toolAvailable(tools: ToolStatus[], name: string): boolean {
   return tools.some(
     (tool) => tool.name.toLowerCase() === name.toLowerCase() && tool.available,
   );

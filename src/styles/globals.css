@@ -6,16 +6,32 @@
     sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+  --cmd-surface: #10171e;
+  --cmd-input: #ececec;
+  --cmd-placeholder: #8e8e8e;
+  --cmd-control: #ededed;
+  --cmd-muted: #9a9a9a;
+  --cmd-accent: #4d9fff;
+  --cmd-blue: #0b84ff;
+  --cmd-blue-hi: #2f93ff;
+  --cmd-hover: rgba(255, 255, 255, 0.06);
 }
 
 * {
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
   min-width: 900px;
-  min-height: 100vh;
+  min-height: 100%;
   background:
     radial-gradient(circle at 72% 8%, rgba(38, 111, 122, 0.16), transparent 35%),
     #080b10;
@@ -28,7 +44,20 @@ button {
 .app-shell {
   display: grid;
   grid-template-columns: 240px 1fr;
-  min-height: 100vh;
+  height: 100vh;
+  max-height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-shell > .chat-workspace--conversation {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  min-height: 0;
+  max-height: 100vh;
+  overflow: hidden;
+  padding: 0;
 }
 
 .sidebar {
@@ -152,6 +181,554 @@ nav {
   padding: 20px 26px 18px;
   overflow: hidden;
   box-sizing: border-box;
+}
+
+.chat-workspace.chat-workspace--conversation {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+  background: #080b10;
+}
+
+.chat-conversation-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.chat-conversation-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 8px 16px;
+  border-bottom: 1px solid #1a232c;
+  background: rgba(10, 15, 20, 0.96);
+}
+
+.chat-conversation-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-clear-chat-btn {
+  padding: 6px 14px;
+  border: 1px solid #3a4650;
+  border-radius: 8px;
+  color: #b8c6cc;
+  background: #151c22;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.chat-clear-chat-btn:hover:not(:disabled) {
+  background: #1a242c;
+  color: #dce7ec;
+}
+
+.chat-clear-chat-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.chat-clear-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(5, 8, 12, 0.72);
+  backdrop-filter: blur(8px);
+}
+
+.chat-clear-confirm-dialog {
+  width: min(420px, 100%);
+  padding: 20px 22px 18px;
+  border: 1px solid #2b3a44;
+  border-radius: 14px;
+  background: #0d1319;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
+}
+
+.chat-clear-confirm-dialog h3 {
+  margin: 0 0 8px;
+  color: #e4eef3;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.chat-clear-confirm-dialog p {
+  margin: 0 0 18px;
+  color: #8ea0a8;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.chat-clear-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.chat-clear-confirm-danger {
+  padding: 8px 16px;
+  border: 1px solid #6b3030;
+  border-radius: 8px;
+  color: #ffd8d8;
+  background: #3a1818;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+
+.chat-clear-confirm-danger:hover:not(:disabled) {
+  background: #4a2020;
+}
+
+.chat-clear-confirm-danger:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.chat-settings-menu {
+  position: relative;
+}
+
+.chat-settings-menu > summary {
+  list-style: none;
+  padding: 6px 14px;
+  border: 1px solid #2b3a44;
+  border-radius: 8px;
+  color: #9eb0b8;
+  background: #111820;
+  cursor: pointer;
+  font-size: 12px;
+  user-select: none;
+}
+
+.chat-settings-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.chat-settings-menu[open] > summary {
+  border-color: #3b7181;
+  color: #dcecf2;
+}
+
+.chat-settings-body {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 12px;
+  width: min(360px, calc(100vw - 280px));
+  padding: 14px;
+  border: 1px solid #2b3a44;
+  border-radius: 10px;
+  background: #0d1319;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+}
+
+.chat-settings-meta {
+  color: #647983;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.chat-settings-router {
+  padding-top: 8px;
+  border-top: 1px solid #202a34;
+}
+
+.chat-settings-router p {
+  margin: 0 0 6px;
+  color: #9eb0b8;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.chat-thread {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  padding: 20px 24px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+
+.chat-bubble-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: min(720px, 88%);
+}
+
+.chat-bubble-row--user {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.chat-bubble-row--assistant {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+.chat-bubble {
+  padding: 12px 16px;
+  border-radius: 16px;
+  line-height: 1.55;
+}
+
+.chat-bubble p {
+  margin: 0;
+  font-size: 14px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-bubble--user {
+  border: 1px solid #294a54;
+  border-bottom-right-radius: 6px;
+  color: #e4eef3;
+  background: #102128;
+}
+
+.chat-bubble--assistant {
+  border: 1px solid #25313a;
+  border-bottom-left-radius: 6px;
+  color: #d4e0e6;
+  background: #10171e;
+}
+
+.chat-bubble-time {
+  color: #5f737c;
+  font-size: 11px;
+}
+
+.chat-empty-state {
+  display: grid;
+  flex: 1;
+  place-content: center;
+  min-height: 200px;
+  color: #71838d;
+  text-align: center;
+}
+
+.chat-empty-state h3 {
+  margin: 0 0 8px;
+  color: #d8e4e9;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.chat-empty-state p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.chat-composer-area {
+  position: relative;
+  z-index: 5;
+  flex: 0 0 auto;
+  flex-shrink: 0;
+  display: grid;
+  gap: 0;
+  border-top: 1px solid #1a232c;
+  background: #0a0f14;
+}
+
+.chat-composer-area .chat-router-suggestion {
+  margin: 12px 20px 0;
+}
+
+.cmdbar {
+  display: flex;
+  flex-direction: column;
+  margin: 14px 20px 18px;
+  padding: 18px 18px 14px;
+  min-height: 116px;
+  border-radius: 28px;
+  background: var(--cmd-surface);
+}
+
+.cmdbar-hint {
+  margin: 0 0 8px 6px;
+  color: #d6a86a;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.cmdbar-input {
+  width: 100%;
+  min-height: 24px;
+  max-height: 200px;
+  border: 0;
+  outline: 0;
+  resize: none;
+  overflow-y: auto;
+  color: var(--cmd-input);
+  background: transparent;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.cmdbar-input::placeholder {
+  color: var(--cmd-placeholder);
+}
+
+.cmdbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.cmdbar-left,
+.cmdbar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cmdbar-pop {
+  position: relative;
+  display: inline-flex;
+}
+
+.cmdbar-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--cmd-control);
+  background: transparent;
+  cursor: pointer;
+}
+
+.cmdbar-icon:hover:not(:disabled) {
+  background: var(--cmd-hover);
+}
+
+.cmdbar-icon:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.cmdbar-icon.is-live {
+  position: relative;
+  color: var(--cmd-accent);
+}
+
+.cmdbar-icon.is-live::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border: 1px solid rgba(77, 159, 255, 0.45);
+  border-radius: 8px;
+  animation: cmdbar-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes cmdbar-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.96);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.cmdbar-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--cmd-control);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.cmdbar-chip:hover:not(:disabled) {
+  background: var(--cmd-hover);
+}
+
+.cmdbar-chip:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.cmdbar-chip.is-on {
+  color: var(--cmd-accent);
+}
+
+.cmdbar-chip.is-on svg {
+  color: var(--cmd-accent);
+}
+
+.cmdbar-badge {
+  padding: 0 6px;
+  border-radius: 9px;
+  color: #0b1016;
+  background: var(--cmd-accent);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.cmdbar-effort {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 6px;
+  border: 0;
+  color: var(--cmd-muted);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 16px;
+}
+
+.cmdbar-effort:hover {
+  color: #c4c4c4;
+}
+
+.cmdbar-go {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-left: 4px;
+  border: 0;
+  border-radius: 50%;
+  color: #fff;
+  background: var(--cmd-blue);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.cmdbar-go:hover:not(:disabled) {
+  background: var(--cmd-blue-hi);
+}
+
+.cmdbar-go:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.cmdbar-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  min-width: 200px;
+  padding: 6px;
+  border: 1px solid #3a3a3a;
+  border-radius: 12px;
+  background: #1f1f1f;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+}
+
+.cmdbar-menu--right {
+  left: auto;
+  right: 0;
+}
+
+.cmdbar-menu--apps {
+  min-width: 220px;
+}
+
+.cmdbar-menu-item {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  color: #ececec;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+}
+
+.cmdbar-menu-item:hover:not(:disabled) {
+  background: var(--cmd-hover);
+}
+
+.cmdbar-menu-item:disabled,
+.cmdbar-menu-item.is-disabled {
+  color: #6f6f6f;
+  cursor: not-allowed;
+}
+
+.cmdbar-menu-item.is-selected {
+  color: var(--cmd-accent);
+}
+
+.cmdbar-menu-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: #ececec;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.cmdbar-menu-toggle:hover {
+  background: var(--cmd-hover);
+}
+
+.cmdbar-menu-note {
+  margin: 4px 10px 2px;
+  color: #8a8a8a;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+@media (max-height: 640px) {
+  .cmdbar {
+    min-height: 96px;
+    padding-top: 14px;
+  }
 }
 
 .chat-compact-header {

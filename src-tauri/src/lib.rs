@@ -118,6 +118,7 @@ pub fn run() {
             commands::chat::stream_chat_message,
             commands::chat::cancel_stream_chat,
             commands::chat::load_chat_messages,
+            commands::chat::clear_chat_messages,
             commands::chat::load_chat_preferences,
             commands::chat::save_chat_preferences,
             commands::providers::list_provider_adapters,

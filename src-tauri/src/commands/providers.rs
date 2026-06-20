@@ -10,14 +10,16 @@ use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tauri::AppHandle;
 
+use crate::connector_bridge;
+use crate::tool_path;
 use crate::models::{
     CatalogSource, ChatMessageInput, CredentialStatus, DiscoveredEntity,
-    LegacyCredentialImportOutcome, LegacyCredentialImportResult, LocalModel,
-    ProviderAdapterStatus, ProviderCheckRequest, ProviderCredentialRequest, ProviderHealth,
+    LegacyCredentialImportOutcome, LegacyCredentialImportResult, LocalModel, ProviderAdapterStatus,
+    ProviderCheckRequest, ProviderCredentialRequest, ProviderHealth,
 };
-use crate::connector_bridge;
 use crate::secrets;
 use crate::storage;
 
@@ -206,6 +208,7 @@ pub(crate) enum ProviderAdapter {
     OpenAiCompatible,
     Anthropic,
     ClaudeCode,
+    CodexCli,
 }
 
 #[derive(Debug, Deserialize)]
@@ -397,10 +400,10 @@ pub async fn import_legacy_provider_credentials(
     let database_path = database_path(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
         let started_at = Utc::now();
-        let (candidates, mut result) = collect_legacy_credentials_for_slots(
-            lookup_legacy_keychain_credential,
-            |slot| !encrypted_slot_is_usable(&database_path, slot),
-        );
+        let (candidates, mut result) =
+            collect_legacy_credentials_for_slots(lookup_legacy_keychain_credential, |slot| {
+                !encrypted_slot_is_usable(&database_path, slot)
+            });
 
         for (slot, secret) in candidates {
             let provider_id = match slot.as_str() {
@@ -431,22 +434,12 @@ pub async fn import_legacy_provider_credentials(
                         Ok(_) => {
                             let detail = format!("{label}: provider returned no models");
                             result.errors.push(detail.clone());
-                            set_import_outcome(
-                                &mut result,
-                                &slot,
-                                "imported-unverified",
-                                detail,
-                            );
+                            set_import_outcome(&mut result, &slot, "imported-unverified", detail);
                         }
                         Err(error) => {
                             let detail = format!("{label}: {error}");
                             result.errors.push(detail.clone());
-                            set_import_outcome(
-                                &mut result,
-                                &slot,
-                                "imported-unverified",
-                                detail,
-                            );
+                            set_import_outcome(&mut result, &slot, "imported-unverified", detail);
                         }
                     }
                 }
@@ -462,7 +455,9 @@ pub async fn import_legacy_provider_credentials(
         result.missing.sort();
         result.conflicts.sort();
         result.errors.sort();
-        result.outcomes.sort_by(|left, right| left.slot_id.cmp(&right.slot_id));
+        result
+            .outcomes
+            .sort_by(|left, right| left.slot_id.cmp(&right.slot_id));
         persist_import_failure_outcomes(&database_path, &result)?;
         let already_imported = result
             .outcomes
@@ -511,7 +506,10 @@ fn persist_import_failure_outcomes(
     Ok(())
 }
 
-fn clear_import_failure_for_definition(path: &Path, definition: &ProviderDefinition) -> Result<(), String> {
+fn clear_import_failure_for_definition(
+    path: &Path,
+    definition: &ProviderDefinition,
+) -> Result<(), String> {
     let slot = credential_slot_id(definition);
     storage::set_provider_import_failure(path, slot, None)
 }
@@ -846,7 +844,35 @@ fn status_for_definition(
     let mut catalog_source = CatalogSource::None;
     let mut verified_available = false;
 
-    if check_remote {
+    if is_cli_adapter(definition.adapter) {
+        match cli_adapter_ready(definition.adapter) {
+            Ok(session_detail) => {
+                health.available = true;
+                health.detail = session_detail.clone();
+                models = match definition.adapter {
+                    ProviderAdapter::ClaudeCode => fetch_claude_code_models().unwrap_or_default(),
+                    ProviderAdapter::CodexCli => codex_static_models(),
+                    _ => Vec::new(),
+                };
+                catalog_source = CatalogSource::Static;
+                if check_remote {
+                    verified_available = !models.is_empty();
+                    if verified_available {
+                        health.detail = format!(
+                            "{}. {} model{} ready.",
+                            session_detail,
+                            models.len(),
+                            if models.len() == 1 { "" } else { "s" }
+                        );
+                    }
+                }
+            }
+            Err(error) => {
+                health.available = false;
+                health.detail = error;
+            }
+        }
+    } else if check_remote {
         let credentials_ready = definition.key_env.is_none()
             || matches!(
                 credential_status,
@@ -866,8 +892,7 @@ fn status_for_definition(
                     };
                     catalog_source = CatalogSource::Live;
                     models = next_models;
-                    if models.is_empty()
-                        && matches!(definition.adapter, ProviderAdapter::Anthropic)
+                    if models.is_empty() && matches!(definition.adapter, ProviderAdapter::Anthropic)
                     {
                         models = anthropic_fallback_models();
                         catalog_source = CatalogSource::Fallback;
@@ -876,10 +901,7 @@ fn status_for_definition(
                 Err(error) => {
                     health.available = false;
                     health.detail = provider_check_error(definition, &error);
-                    if definition.id == "codex" {
-                        models = codex_static_models();
-                        catalog_source = CatalogSource::Static;
-                    } else if matches!(definition.adapter, ProviderAdapter::Anthropic) {
+                    if matches!(definition.adapter, ProviderAdapter::Anthropic) {
                         models = anthropic_fallback_models();
                         catalog_source = CatalogSource::Fallback;
                     }
@@ -893,9 +915,6 @@ fn status_for_definition(
                 definition.name
             );
         }
-    } else if definition.id == "codex" {
-        models = codex_static_models();
-        catalog_source = CatalogSource::Static;
     } else if matches!(definition.adapter, ProviderAdapter::Anthropic) {
         models = anthropic_fallback_models();
         catalog_source = CatalogSource::Fallback;
@@ -1007,7 +1026,8 @@ pub(crate) fn fetch_provider_models_blocking(
 pub(crate) fn resolve_lm_studio_model_id(database_path: Option<&Path>) -> Result<String, String> {
     if let Some(path) = database_path {
         if let Ok(preferences) = storage::load_chat_preferences(path) {
-            if preferences.last_provider_id == "lm-studio" && !preferences.last_model_id.is_empty() {
+            if preferences.last_provider_id == "lm-studio" && !preferences.last_model_id.is_empty()
+            {
                 return Ok(preferences.last_model_id);
             }
         }
@@ -1034,13 +1054,9 @@ fn fetch_provider_models(
 ) -> Result<Vec<LocalModel>, String> {
     match definition.adapter {
         ProviderAdapter::ClaudeCode => fetch_claude_code_models(),
+        ProviderAdapter::CodexCli => fetch_codex_cli_models(),
         ProviderAdapter::Anthropic => fetch_anthropic_models(definition, base_url),
-        ProviderAdapter::OpenAiCompatible if definition.id == "codex" => {
-            fetch_codex_models(definition, base_url)
-        }
-        ProviderAdapter::OpenAiCompatible => {
-            fetch_openai_compatible_models(definition, base_url)
-        }
+        ProviderAdapter::OpenAiCompatible => fetch_openai_compatible_models(definition, base_url),
     }
 }
 
@@ -1124,31 +1140,13 @@ fn fetch_anthropic_models(
     Ok(models)
 }
 
-fn fetch_codex_models(
-    definition: &ProviderDefinition,
-    base_url: &str,
-) -> Result<Vec<LocalModel>, String> {
-    let mut models = codex_static_models();
-    let api_models = fetch_openai_compatible_models(definition, base_url)?;
-    for model in api_models {
-        let id = model.id.to_lowercase();
-        if (id.contains("codex") || id.starts_with("gpt-5"))
-            && !models.iter().any(|entry| entry.id == model.id)
-        {
-            models.push(model);
-        }
-    }
-    models.sort_by(|left, right| left.id.cmp(&right.id));
-    Ok(models)
+fn fetch_codex_cli_models() -> Result<Vec<LocalModel>, String> {
+    cli_adapter_ready(ProviderAdapter::CodexCli)?;
+    Ok(codex_static_models())
 }
 
 fn fetch_claude_code_models() -> Result<Vec<LocalModel>, String> {
-    if !command_available("claude") {
-        return Err(
-            "Claude Code CLI is not installed or not on PATH. Install it, then reload models."
-                .to_owned(),
-        );
-    }
+    cli_adapter_ready(ProviderAdapter::ClaudeCode)?;
     Ok(vec![LocalModel {
         id: "claude-code".to_owned(),
         owned_by: Some("claude-cli".to_owned()),
@@ -1174,7 +1172,7 @@ fn codex_static_models() -> Vec<LocalModel> {
         "gpt-5.4",
         "gpt-5.4-mini",
         "gpt-5.3-codex-spark",
-        "codex-mini-latest",
+        "gpt-4.1",
     ]
     .into_iter()
     .map(|id| LocalModel {
@@ -1185,27 +1183,141 @@ fn codex_static_models() -> Vec<LocalModel> {
 }
 
 fn anthropic_fallback_models() -> Vec<LocalModel> {
-    [
-        "claude-opus-4-6",
-        "claude-sonnet-4-6",
-        "claude-haiku-4-5",
-    ]
-    .into_iter()
-    .map(|id| LocalModel {
-        id: id.to_owned(),
-        owned_by: Some("anthropic".to_owned()),
-    })
-    .collect()
+    ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"]
+        .into_iter()
+        .map(|id| LocalModel {
+            id: id.to_owned(),
+            owned_by: Some("anthropic".to_owned()),
+        })
+        .collect()
+}
+
+pub(crate) fn enriched_cli_path() -> String {
+    tool_path::enriched_path_env(&[])
+}
+
+pub(crate) fn configure_cli_command(command: &mut std::process::Command) {
+    command.env("PATH", enriched_cli_path());
+}
+
+pub(crate) fn resolve_cli_executable(name: &str) -> Result<PathBuf, String> {
+    let path = Path::new(name);
+    if path.components().count() > 1 {
+        if path.is_file() {
+            return Ok(path.to_path_buf());
+        }
+        return Err(format!(
+            "{name} CLI is not installed or not on PATH. Install it, then reload models."
+        ));
+    }
+    tool_path::find_executable(name, &[])
+        .map(|resolved| resolved.path)
+        .ok_or_else(|| {
+            format!(
+                "{name} CLI is not installed or not on PATH. Install it, then reload models."
+            )
+        })
 }
 
 fn command_available(name: &str) -> bool {
-    let path = Path::new(name);
-    if path.components().count() > 1 {
-        return path.is_file();
+    resolve_cli_executable(name).is_ok()
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeAuthStatus {
+    #[serde(rename = "loggedIn")]
+    logged_in: bool,
+}
+
+fn claude_cli_logged_in() -> bool {
+    use std::process::Command;
+
+    let Ok(path) = resolve_cli_executable("claude") else {
+        return false;
+    };
+    let mut command = Command::new(&path);
+    command.args(["auth", "status"]);
+    configure_cli_command(&mut command);
+    let output = match command.output() {
+        Ok(output) => output,
+        Err(_) => return false,
+    };
+    if !output.status.success() {
+        return false;
     }
-    env::var_os("PATH").is_some_and(|paths| {
-        env::split_paths(&paths).any(|directory| directory.join(name).is_file())
-    })
+    serde_json::from_slice::<ClaudeAuthStatus>(&output.stdout)
+        .map(|status| status.logged_in)
+        .unwrap_or(false)
+}
+
+fn codex_cli_logged_in() -> bool {
+    use std::process::Command;
+
+    let Ok(path) = resolve_cli_executable("codex") else {
+        return false;
+    };
+    let mut command = Command::new(&path);
+    command.args(["login", "status"]);
+    configure_cli_command(&mut command);
+    let output = match command.output() {
+        Ok(output) => output,
+        Err(_) => return false,
+    };
+    if !output.status.success() {
+        return false;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    stdout.contains("Logged in") || stderr.contains("Logged in")
+}
+
+fn cli_adapter_ready(adapter: ProviderAdapter) -> Result<String, String> {
+    match adapter {
+        ProviderAdapter::ClaudeCode => {
+            if !command_available("claude") {
+                return Err(
+                    "Claude Code CLI is not installed or not on PATH. Install it, then reload models."
+                        .to_owned(),
+                );
+            }
+            if !claude_cli_logged_in() {
+                return Err(
+                    "Claude CLI is not signed in. Run `claude login` in a terminal, then reload models."
+                        .to_owned(),
+                );
+            }
+            Ok("Claude Pro subscription session is active.".to_owned())
+        }
+        ProviderAdapter::CodexCli => {
+            if !command_available("codex") {
+                return Err(
+                    "Codex CLI is not installed or not on PATH. Install it, then reload models."
+                        .to_owned(),
+                );
+            }
+            if !command_available("node") {
+                return Err(
+                    "Codex CLI requires Node.js. Install Node or ensure it is available, then reload models."
+                        .to_owned(),
+                );
+            }
+            if !codex_cli_logged_in() {
+                return Err(
+                    "Codex CLI is not signed in. Run `codex login` in a terminal, then reload models."
+                        .to_owned(),
+                );
+            }
+            Ok("ChatGPT Plus session is active via Codex CLI.".to_owned())
+        }
+        _ => Err("provider is not a CLI adapter".to_owned()),
+    }
+}
+
+fn is_cli_adapter(adapter: ProviderAdapter) -> bool {
+    matches!(
+        adapter,
+        ProviderAdapter::ClaudeCode | ProviderAdapter::CodexCli
+    )
 }
 
 fn http_client(timeout: Duration) -> Result<Client, String> {
@@ -1250,6 +1362,7 @@ pub(crate) fn dispatch_provider_handoff(
             prompt,
         ),
         ProviderAdapter::ClaudeCode => dispatch_claude_code(prompt),
+        ProviderAdapter::CodexCli => dispatch_codex_cli(model_id, prompt),
     }
 }
 
@@ -1272,7 +1385,16 @@ pub(crate) fn verify_provider_model(
     base_url: &str,
     model_id: &str,
 ) -> Result<(), String> {
-    let models = fetch_provider_models(definition, base_url)?;
+    let mut models = match definition.adapter {
+        ProviderAdapter::ClaudeCode | ProviderAdapter::CodexCli => {
+            fetch_provider_models(definition, base_url).unwrap_or_default()
+        }
+        _ => match fetch_provider_models(definition, base_url) {
+            Ok(models) => models,
+            Err(_) => Vec::new(),
+        },
+    };
+    merge_catalog_fallback_models(definition, &mut models);
     if models.iter().any(|model| model.id == model_id) {
         Ok(())
     } else {
@@ -1283,8 +1405,102 @@ pub(crate) fn verify_provider_model(
     }
 }
 
+fn merge_catalog_fallback_models(
+    definition: &ProviderDefinition,
+    models: &mut Vec<LocalModel>,
+) {
+    let fallbacks = match definition.id {
+        "codex" => codex_static_models(),
+        "anthropic" => anthropic_fallback_models(),
+        "claude-code" if command_available("claude") => vec![LocalModel {
+            id: "claude-code".to_owned(),
+            owned_by: Some("claude-cli".to_owned()),
+        }],
+        _ => Vec::new(),
+    };
+    for model in fallbacks {
+        if !models.iter().any(|entry| entry.id == model.id) {
+            models.push(model);
+        }
+    }
+}
+
+pub(crate) fn complete_openai_responses_chat(
+    definition: &ProviderDefinition,
+    base_url: &str,
+    model_id: &str,
+    messages: &[ChatMessageInput],
+) -> Result<(String, Option<String>), String> {
+    let (instructions, input) = split_responses_chat_messages(messages);
+    let mut headers = provider_headers(definition)?.unwrap_or_default();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    let response = http_client(Duration::from_secs(120))?
+        .post(format!("{}/responses", base_url.trim_end_matches('/')))
+        .headers(headers)
+        .json(&ResponsesRequest {
+            model: model_id,
+            instructions: &instructions,
+            input: &input,
+        })
+        .send()
+        .map_err(|error| format!("chat responses request failed: {error}"))?;
+    if let Err(error) = response.error_for_status_ref() {
+        let detail = response
+            .text()
+            .map_err(|_| format!("chat provider rejected responses request: {error}"))?;
+        return Err(format_provider_http_error(
+            "chat provider rejected responses request",
+            &error,
+            &detail,
+        ));
+    }
+    let response = response
+        .json::<ResponsesResponse>()
+        .map_err(|error| format!("chat provider returned invalid responses data: {error}"))?;
+
+    Ok((extract_responses_text(response)?, None))
+}
+
+fn split_responses_chat_messages(messages: &[ChatMessageInput]) -> (String, String) {
+    let mut system_parts = Vec::new();
+    let mut turns = Vec::new();
+    for message in messages {
+        match message.role.as_str() {
+            "system" => system_parts.push(message.content.clone()),
+            role => turns.push(format!("{role}: {}", message.content)),
+        }
+    }
+    let instructions = if system_parts.is_empty() {
+        "You are a helpful assistant in an AgentDeck chat conversation.".to_owned()
+    } else {
+        system_parts.join("\n\n")
+    };
+    (instructions, turns.join("\n\n"))
+}
+
 pub(crate) fn uses_responses_api(definition: &ProviderDefinition, base_url: &str) -> bool {
     uses_openai_responses_api(definition, base_url)
+}
+
+pub(crate) fn format_provider_http_error(
+    prefix: &str,
+    error: &reqwest::Error,
+    body: &str,
+) -> String {
+    if let Ok(parsed) = serde_json::from_str::<Value>(body) {
+        if let Some(message) = parsed
+            .pointer("/error/message")
+            .and_then(Value::as_str)
+            .or_else(|| parsed.pointer("/message").and_then(Value::as_str))
+        {
+            return format!("{prefix}: {message}");
+        }
+    }
+    if body.trim().is_empty() {
+        format!("{prefix}: {error}")
+    } else {
+        format!("{prefix}: {error} — {body}")
+    }
 }
 
 fn dispatch_claude_code(prompt: &str) -> Result<(String, Option<String>), String> {
@@ -1295,10 +1511,14 @@ fn dispatch_claude_code(prompt: &str) -> Result<(String, Option<String>), String
 
     const TIMEOUT: Duration = Duration::from_secs(120);
 
-    let mut child = Command::new("claude")
+    let claude = resolve_cli_executable("claude")?;
+    let mut child = Command::new(&claude);
+    child
         .args(["-p", prompt])
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    configure_cli_command(&mut child);
+    let mut child = child
         .spawn()
         .map_err(|error| format!("failed to launch Claude Code: {error}"))?;
 
@@ -1365,6 +1585,131 @@ fn dispatch_claude_code(prompt: &str) -> Result<(String, Option<String>), String
         return Err("Claude Code returned an empty response".to_owned());
     }
     Ok((content, None))
+}
+
+#[derive(Debug, Deserialize)]
+struct CodexJsonEvent {
+    #[serde(rename = "type")]
+    event_type: String,
+    item: Option<CodexJsonItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CodexJsonItem {
+    #[serde(rename = "type")]
+    item_type: String,
+    text: Option<String>,
+}
+
+fn extract_codex_agent_message(stdout: &str) -> Result<String, String> {
+    let mut messages = Vec::new();
+    for line in stdout.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(event) = serde_json::from_str::<CodexJsonEvent>(line) else {
+            continue;
+        };
+        if event.event_type != "item.completed" {
+            continue;
+        }
+        let Some(item) = event.item else {
+            continue;
+        };
+        if item.item_type != "agent_message" {
+            continue;
+        }
+        if let Some(text) = item.text.filter(|value| !value.trim().is_empty()) {
+            messages.push(text);
+        }
+    }
+    messages
+        .pop()
+        .ok_or_else(|| "Codex CLI returned an empty response".to_owned())
+}
+
+fn dispatch_codex_cli(model_id: &str, prompt: &str) -> Result<(String, Option<String>), String> {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    const TIMEOUT: Duration = Duration::from_secs(180);
+
+    cli_adapter_ready(ProviderAdapter::CodexCli)?;
+
+    let codex = resolve_cli_executable("codex")?;
+    let mut child = Command::new(&codex);
+    child
+        .args(["exec", "--json", "-m", model_id, prompt])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    configure_cli_command(&mut child);
+    let mut child = child
+        .spawn()
+        .map_err(|error| format!("failed to launch Codex CLI: {error}"))?;
+
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "failed to capture Codex CLI stdout".to_owned())?;
+    let mut stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "failed to capture Codex CLI stderr".to_owned())?;
+
+    let stdout_handle = thread::spawn(move || {
+        let mut buffer = Vec::new();
+        stdout
+            .read_to_end(&mut buffer)
+            .map(|_| buffer)
+            .map_err(|error| format!("failed to read Codex CLI stdout: {error}"))
+    });
+    let stderr_handle = thread::spawn(move || {
+        let mut buffer = Vec::new();
+        stderr
+            .read_to_end(&mut buffer)
+            .map(|_| buffer)
+            .map_err(|error| format!("failed to read Codex CLI stderr: {error}"))
+    });
+
+    let started = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if started.elapsed() >= TIMEOUT {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err("Codex CLI subprocess timed out after 180s".to_owned());
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
+            Err(error) => {
+                return Err(format!("failed while waiting for Codex CLI: {error}"));
+            }
+        }
+    };
+
+    let stdout_bytes = stdout_handle
+        .join()
+        .map_err(|_| "failed to join Codex CLI stdout reader".to_owned())??;
+    let stderr_bytes = stderr_handle
+        .join()
+        .map_err(|_| "failed to join Codex CLI stderr reader".to_owned())??;
+
+    if !status.success() {
+        let stderr = String::from_utf8_lossy(&stderr_bytes);
+        return Err(format!(
+            "Codex CLI exited with status {}: {}",
+            status,
+            stderr.trim()
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&stdout_bytes);
+    Ok((extract_codex_agent_message(&stdout)?, None))
 }
 
 fn dispatch_openai_compatible(
@@ -1477,7 +1822,7 @@ fn extract_responses_text(response: ResponsesResponse) -> Result<String, String>
 }
 
 fn uses_openai_responses_api(definition: &ProviderDefinition, base_url: &str) -> bool {
-    matches!(definition.id, "openai-compatible" | "codex")
+    definition.id == "openai-compatible"
         && base_url.trim_end_matches('/') == "https://api.openai.com/v1"
 }
 
@@ -1508,9 +1853,18 @@ fn dispatch_anthropic(
             max_tokens: 4096,
         })
         .send()
-        .map_err(|error| format!("handoff dispatch failed: {error}"))?
-        .error_for_status()
-        .map_err(|error| format!("handoff provider rejected the request: {error}"))?
+        .map_err(|error| format!("handoff dispatch failed: {error}"))?;
+    if let Err(error) = response.error_for_status_ref() {
+        let detail = response
+            .text()
+            .map_err(|_| format!("handoff provider rejected the request: {error}"))?;
+        return Err(format_provider_http_error(
+            "handoff provider rejected the request",
+            &error,
+            &detail,
+        ));
+    }
+    let response = response
         .json::<AnthropicMessagesResponse>()
         .map_err(|error| format!("handoff provider returned invalid data: {error}"))?;
 
@@ -1549,7 +1903,7 @@ fn provider_headers(definition: &ProviderDefinition) -> Result<Option<HeaderMap>
             headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
             headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
         }
-        ProviderAdapter::ClaudeCode => {}
+        ProviderAdapter::ClaudeCode | ProviderAdapter::CodexCli => {}
     }
     Ok(Some(headers))
 }
@@ -1612,7 +1966,7 @@ fn provider_definitions() -> Vec<ProviderDefinition> {
         },
         ProviderDefinition {
             id: "openai-compatible",
-            name: "OpenAI-compatible",
+            name: "OpenAI API",
             kind: "openai-compatible",
             base_url: "https://api.openai.com/v1",
             auth_mode: "bearer-key",
@@ -1634,7 +1988,7 @@ fn provider_definitions() -> Vec<ProviderDefinition> {
         },
         ProviderDefinition {
             id: "anthropic",
-            name: "Anthropic",
+            name: "Anthropic API",
             kind: "anthropic",
             base_url: "https://api.anthropic.com/v1",
             auth_mode: "x-api-key",
@@ -1645,18 +1999,18 @@ fn provider_definitions() -> Vec<ProviderDefinition> {
         },
         ProviderDefinition {
             id: "codex",
-            name: "Codex",
-            kind: "openai-compatible",
-            base_url: "https://api.openai.com/v1",
-            auth_mode: "bearer-key",
-            key_env: Some("OPENAI_API_KEY"),
-            base_url_env: Some("AGENTDECK_OPENAI_COMPATIBLE_BASE_URL"),
-            adapter: ProviderAdapter::OpenAiCompatible,
+            name: "Codex (ChatGPT Plus)",
+            kind: "codex-cli",
+            base_url: "stdio://codex",
+            auth_mode: "none",
+            key_env: None,
+            base_url_env: None,
+            adapter: ProviderAdapter::CodexCli,
             capabilities: &["models", "chat", "codex"],
         },
         ProviderDefinition {
             id: "claude-code",
-            name: "Claude Code",
+            name: "Claude Pro (CLI)",
             kind: "claude-code-mcp",
             base_url: "stdio://claude",
             auth_mode: "none",
@@ -1734,8 +2088,6 @@ fn store_provider_audit(
     Ok(())
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1770,12 +2122,14 @@ mod tests {
     }
 
     #[test]
-    fn openai_providers_share_one_secret_slot() {
+    fn codex_cli_adapter_does_not_share_openai_secret_slot() {
         let codex = find_definition("codex").unwrap();
         let openai = find_definition("openai-compatible").unwrap();
 
-        assert_eq!(credential_slot_id(&codex), "openai");
+        assert_eq!(credential_slot_id(&codex), "codex");
         assert_eq!(credential_slot_id(&openai), "openai");
+        assert!(matches!(codex.adapter, ProviderAdapter::CodexCli));
+        assert!(codex.key_env.is_none());
     }
 
     #[test]
@@ -1797,7 +2151,10 @@ mod tests {
             &openai,
             "https://api.openai.com/v1"
         ));
-        assert!(uses_openai_responses_api(&codex, "https://api.openai.com/v1"));
+        assert!(!uses_openai_responses_api(
+            &codex,
+            "https://api.openai.com/v1"
+        ));
         assert!(!uses_openai_responses_api(&xai, "https://api.x.ai/v1"));
         assert!(!uses_openai_responses_api(
             &openai,
@@ -1809,7 +2166,33 @@ mod tests {
     fn codex_models_include_curated_defaults() {
         let models = codex_static_models();
         assert!(models.iter().any(|model| model.id == "gpt-5.5"));
-        assert!(models.iter().any(|model| model.id == "codex-mini-latest"));
+        assert!(models.iter().any(|model| model.id == "gpt-5.4"));
+        assert!(models.iter().any(|model| model.id == "gpt-4.1"));
+    }
+
+    #[test]
+    fn extract_codex_agent_message_reads_jsonl_output() {
+        let stdout = r#"{"type":"thread.started","thread_id":"abc"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"hello from codex"}}"#;
+        assert_eq!(
+            extract_codex_agent_message(stdout).unwrap(),
+            "hello from codex"
+        );
+    }
+
+    #[test]
+    fn verify_accepts_catalog_fallback_models_without_live_fetch() {
+        let codex = find_definition("codex").unwrap();
+        let mut models = Vec::new();
+        merge_catalog_fallback_models(&codex, &mut models);
+        assert!(models.iter().any(|model| model.id == "gpt-5.4"));
+        assert!(verify_provider_model(&codex, "https://api.openai.com/v1", "gpt-5.4").is_ok());
+
+        let anthropic = find_definition("anthropic").unwrap();
+        assert!(
+            verify_provider_model(&anthropic, "https://api.anthropic.com/v1", "claude-sonnet-4-6")
+                .is_ok()
+        );
     }
 
     #[test]
@@ -1903,7 +2286,7 @@ mod tests {
     }
 
     #[test]
-    fn shared_openai_secret_survives_restart_and_deletes_for_both_providers() {
+    fn openai_api_secret_round_trips_through_shared_slot() {
         let dir = std::env::temp_dir().join(format!(
             "agentdeck-shared-secret-{}",
             Utc::now().timestamp_nanos_opt().unwrap_or(0)
@@ -1911,16 +2294,15 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let database_path = dir.join("agentdeck.sqlite3");
         let openai = find_definition("openai-compatible").unwrap();
-        let codex = find_definition("codex").unwrap();
 
         store_provider_secret(&database_path, &openai, "sk-shared-test").unwrap();
         evict_cached_api_key("openai");
         assert_eq!(
-            read_stored_secret_at(&database_path, &codex).unwrap(),
+            read_stored_secret_at(&database_path, &openai).unwrap(),
             Some("sk-shared-test".to_owned())
         );
 
-        delete_stored_secret(&database_path, &codex).unwrap();
+        delete_stored_secret(&database_path, &openai).unwrap();
         assert_eq!(
             read_stored_secret_at(&database_path, &openai).unwrap(),
             None
@@ -1950,9 +2332,16 @@ mod tests {
     #[test]
     fn static_and_fallback_catalogs_are_not_verified_without_checks() {
         let codex = status_for_definition(&find_definition("codex").unwrap(), false, None).unwrap();
-        assert_eq!(codex.catalog_source, CatalogSource::Static);
         assert!(!codex.verified_available);
-        assert!(!codex.models.is_empty());
+        if command_available("codex") && codex_cli_logged_in() {
+            assert_eq!(codex.catalog_source, CatalogSource::Static);
+            assert!(!codex.models.is_empty());
+            assert!(codex.health.available);
+        } else {
+            assert_eq!(codex.catalog_source, CatalogSource::None);
+            assert!(codex.models.is_empty());
+            assert!(!codex.health.available);
+        }
 
         let anthropic =
             status_for_definition(&find_definition("anthropic").unwrap(), false, None).unwrap();
@@ -1970,7 +2359,10 @@ mod tests {
             })
         });
 
-        assert_eq!(candidates.get("openai").map(String::as_str), Some("sk-shared"));
+        assert_eq!(
+            candidates.get("openai").map(String::as_str),
+            Some("sk-shared")
+        );
         assert!(result.conflicts.is_empty());
         assert!(result.errors.is_empty());
         assert_eq!(
@@ -2033,9 +2425,10 @@ mod tests {
 
         assert!(candidates.is_empty());
         assert!(!looked_up.iter().any(|account| account == "xai"));
-        assert!(result.outcomes.iter().any(|outcome| {
-            outcome.slot_id == "xai" && outcome.status == "already-imported"
-        }));
+        assert!(result
+            .outcomes
+            .iter()
+            .any(|outcome| { outcome.slot_id == "xai" && outcome.status == "already-imported" }));
     }
 
     #[test]
@@ -2046,6 +2439,43 @@ mod tests {
         } else {
             assert!(result.is_err());
         }
+    }
+
+    #[test]
+    fn resolve_cli_executable_uses_enriched_lookup() {
+        if resolve_cli_executable("codex").is_ok() {
+            let path = resolve_cli_executable("codex").unwrap();
+            assert!(path.is_file());
+            assert_eq!(path.file_name().and_then(|name| name.to_str()), Some("codex"));
+        }
+    }
+
+    #[test]
+    fn codex_login_status_works_with_enriched_path_env() {
+        use std::process::Command;
+
+        let Ok(codex) = resolve_cli_executable("codex") else {
+            return;
+        };
+        if !command_available("node") {
+            return;
+        }
+
+        let mut command = Command::new(&codex);
+        command.args(["login", "status"]);
+        configure_cli_command(&mut command);
+        let output = command.output().expect("codex login status");
+        assert!(
+            output.status.success(),
+            "codex login status failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let combined = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(combined.contains("Logged in"));
     }
 
     #[test]
@@ -2104,6 +2534,67 @@ mod tests {
     }
 
     #[test]
+    fn format_provider_http_error_extracts_nested_message() {
+        let body = r#"{"error":{"message":"Your credit balance is too low"}}"#;
+        let error = reqwest::blocking::Client::new()
+            .get("https://example.invalid/")
+            .send()
+            .unwrap_err();
+        let formatted = format_provider_http_error("anthropic rejected stream request", &error, body);
+        assert!(formatted.contains("credit balance is too low"));
+    }
+
+    #[test]
+    #[ignore = "requires live Anthropic credentials"]
+    fn diagnose_anthropic_messages_request() {
+        clear_api_key_cache();
+        let database_path = storage::home_database_path().expect("home database");
+        let definition = find_definition("anthropic").expect("anthropic provider");
+        let Some(_api_key) = read_stored_secret_at(&database_path, &definition).expect("read key")
+        else {
+            panic!("no anthropic key stored");
+        };
+
+        let result = dispatch_provider_handoff(
+            "anthropic",
+            "claude-opus-4-6",
+            "AgentDeck diagnostic",
+            "Reply with exactly: pong",
+            "",
+            "agentdeck-chat",
+            "Reply with exactly: pong",
+        );
+        println!("anthropic handoff result: {result:?}");
+        assert!(result.is_ok(), "anthropic chat failed: {result:?}");
+    }
+
+    #[test]
+    #[ignore = "requires live OpenAI credentials"]
+    fn diagnose_codex_responses_request() {
+        clear_api_key_cache();
+        let database_path = storage::home_database_path().expect("home database");
+        let definition = find_definition("codex").expect("codex provider");
+        let Some(_api_key) = read_stored_secret_at(&database_path, &definition).expect("read key")
+        else {
+            panic!("no openai key stored");
+        };
+
+        let messages = vec![ChatMessageInput {
+            role: "user".to_owned(),
+            content: "Reply with exactly: pong".to_owned(),
+        }];
+        for model_id in ["gpt-5.4", "gpt-5.5", "codex-mini-latest", "gpt-4.1"] {
+            let result = complete_openai_responses_chat(
+                &definition,
+                "https://api.openai.com/v1",
+                model_id,
+                &messages,
+            );
+            println!("codex/{model_id}: {result:?}");
+        }
+    }
+
+    #[test]
     #[ignore = "live smoke: temporarily corrupts secret.key with backup/restore"]
     fn live_smoke_corrupt_master_key_surfaces_unreadable() {
         let database_path = storage::resolve_database_path(None).expect("home database");
@@ -2114,8 +2605,7 @@ mod tests {
         let backup_path = key_path.with_extension("key.smoke-bak");
         let backup = std::fs::read(&key_path).expect("secret.key should exist");
         std::fs::write(&backup_path, &backup).expect("backup secret.key");
-        std::fs::write(&key_path, b"corrupted-smoke-test-key!!!!!!")
-            .expect("corrupt secret.key");
+        std::fs::write(&key_path, b"corrupted-smoke-test-key!!!!!!").expect("corrupt secret.key");
 
         clear_api_key_cache();
         let definition = find_definition("anthropic").unwrap();

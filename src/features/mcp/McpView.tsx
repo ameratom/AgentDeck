@@ -266,7 +266,7 @@ export function McpView() {
   const counts = inventory
     ? riskCounts(inventory.servers)
     : { low: 0, medium: 0, high: 0 };
-  const servers = inventory?.servers ?? [];
+  const servers = useMemo(() => inventory?.servers ?? [], [inventory]);
   const selectedServer = useMemo(
     () => servers.find((server) => server.id === selectedServerId) ?? null,
     [servers, selectedServerId],

@@ -1,6 +1,6 @@
 import type { AgentPermissionMatrix, DiscoveredEntity } from "../../lib/types";
 
-export type AgentStatus = "running" | "available" | "configured" | "unavailable";
+type AgentStatus = "running" | "available" | "configured" | "unavailable";
 
 export function filterAgents(entities: DiscoveredEntity[]): DiscoveredEntity[] {
   return entities

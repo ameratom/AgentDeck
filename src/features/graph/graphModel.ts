@@ -1,7 +1,7 @@
 import { Position, type Edge, type Node } from "@xyflow/react";
 import type { DiscoveredEntity } from "../../lib/types";
 
-export interface EntityNodeData extends Record<string, unknown> {
+interface EntityNodeData extends Record<string, unknown> {
   entity: DiscoveredEntity;
   label: string;
   entityType: string;

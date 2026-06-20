@@ -267,6 +267,7 @@ export function HandoffView({
 
   useEffect(() => {
     userOverrodeProviderRef.current = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDismissedSuggestionKey(null);
     lastAutoAppliedRef.current = null;
   }, [routeSuggestionRequestKey]);

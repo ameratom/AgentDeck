@@ -4,6 +4,8 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+use serde_json::Value;
+
 use super::composer::{ComposerError, ComposerRequest, ComposerResponse};
 
 const DEFAULT_MODEL: &str = "composer-2.5-fast";
@@ -83,7 +85,7 @@ fn invoke_cursor_agent(request: &ComposerRequest) -> Result<ComposerResponse, Co
         .arg("--model")
         .arg(&model)
         .arg("--output-format")
-        .arg("text")
+        .arg("json")
         .arg(&prompt);
 
     if let Ok(api_key) = std::env::var("CURSOR_API_KEY") {
@@ -244,12 +246,30 @@ fn format_readonly_context(context: &BTreeMap<String, String>) -> String {
         .join("\n\n")
 }
 
+pub fn unwrap_cursor_payload(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if !trimmed.starts_with('{') {
+        return trimmed.to_owned();
+    }
+
+    let Ok(value) = serde_json::from_str::<Value>(trimmed) else {
+        return trimmed.to_owned();
+    };
+
+    value
+        .get("result")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .unwrap_or_else(|| trimmed.to_owned())
+}
+
 pub fn parse_cursor_response(raw: &str) -> Result<ComposerResponse, ComposerError> {
-    let summary = extract_field(raw, "SUMMARY:")
+    let payload = unwrap_cursor_payload(raw);
+    let summary = extract_field(&payload, "SUMMARY:")
         .unwrap_or_else(|| "Composer completed without explicit summary".to_owned());
-    let suggested_tests = extract_list_field(raw, "SUGGESTED_TESTS:");
-    let suggested_commands = extract_list_field(raw, "SUGGESTED_COMMANDS:");
-    let patch_text = extract_patch(raw)?;
+    let suggested_tests = extract_list_field(&payload, "SUGGESTED_TESTS:");
+    let suggested_commands = extract_list_field(&payload, "SUGGESTED_COMMANDS:");
+    let patch_text = extract_patch(&payload)?;
 
     if patch_text.trim().is_empty() {
         return Err(ComposerError::InvalidResponse(
@@ -545,5 +565,29 @@ index 111..222 100644
     #[test]
     fn looks_like_unified_diff_rejects_prose() {
         assert!(!looks_like_unified_diff("SUMMARY: no diff here"));
+    }
+
+    #[test]
+    fn unwrap_cursor_payload_extracts_result_field_from_json_envelope() {
+        let raw = r#"{"type":"result","subtype":"success","is_error":false,"result":"SUMMARY: Added test\nPATCH:\n```diff\n--- a/file.rs\n+++ b/file.rs\n@@\n+// test\n```"}"#;
+        let payload = unwrap_cursor_payload(raw);
+        assert!(payload.contains("SUMMARY: Added test"));
+        let response = parse_cursor_response(raw).expect("json envelope response");
+        assert_eq!(response.summary, "Added test");
+        assert!(response.patch_text.contains("--- a/file.rs"));
+    }
+
+    #[test]
+    fn extract_patch_accepts_patch_fence_language_tag() {
+        let raw = r#"PATCH:
+```patch
+--- a/foo.rs
++++ b/foo.rs
+@@ -1 +1 @@
+-old
++new
+```"#;
+        let patch = extract_patch(raw).expect("patch fence");
+        assert!(patch.contains("+++ b/foo.rs"));
     }
 }

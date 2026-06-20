@@ -37,20 +37,31 @@ export function credentialStatusClass(status: CredentialStatus): string {
 }
 
 const SLOT_LABELS: Record<string, string> = {
-  openai: "OpenAI / Codex",
-  anthropic: "Anthropic",
+  openai: "OpenAI API",
+  anthropic: "Anthropic API",
   xai: "xAI",
 };
+
+const CLI_PROVIDER_IDS = new Set(["claude-code", "codex"]);
 
 export function importOutcomeForProvider(
   providerId: string,
   outcomes: Array<{ slotId: string; status: string; detail: string }>,
 ): { slotId: string; status: string; detail: string } | null {
-  const slotId =
-    providerId === "codex" || providerId === "openai-compatible"
-      ? "openai"
-      : providerId;
+  const slotId = providerId === "openai-compatible" ? "openai" : providerId;
   return outcomes.find((outcome) => outcome.slotId === slotId) ?? null;
+}
+
+export function providerUsesCliSession(provider: ProviderAdapterStatus): boolean {
+  return provider.authMode === "none" && CLI_PROVIDER_IDS.has(provider.id);
+}
+
+export function providerReadyForChat(
+  provider: ProviderAdapterStatus,
+): boolean {
+  return (
+    !providerCredentialBlocked(provider) && providerHasDispatchableModels(provider)
+  );
 }
 
 export function importOutcomeLabel(slotId: string): string {
@@ -73,14 +84,24 @@ export function providerCredentialBlocked(
   );
 }
 
+export function providerHasDispatchableModels(
+  provider: ProviderAdapterStatus,
+): boolean {
+  return (
+    provider.models.length > 0 &&
+    (provider.verifiedAvailable ||
+      provider.catalogSource === "static" ||
+      provider.catalogSource === "fallback")
+  );
+}
+
 export function providerDispatchBlocked(
   provider: ProviderAdapterStatus | null,
 ): boolean {
   return (
     provider === null ||
     providerCredentialBlocked(provider) ||
-    !provider.verifiedAvailable ||
-    provider.models.length === 0
+    !providerHasDispatchableModels(provider)
   );
 }
 

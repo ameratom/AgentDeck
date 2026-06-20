@@ -28,17 +28,18 @@ import {
   updateWebhookEndpoint,
   webhookDispatchApproval,
 } from "./webhookModel";
+import {
+  DEFAULT_PRESENCE_SETTINGS,
+  presenceSubSettingsEnabled,
+  serviceModeLabel,
+} from "./presenceModel";
 
 const DEFAULT_SETTINGS: AppSettings = {
   redactSensitiveExports: true,
   crashSafeLogging: true,
   grokSubscriptionActive: true,
-  onboardingComplete: false,
   routerAutoApply: true,
-  menuBarServiceMode: true,
-  startHidden: true,
-  closeHidesToMenuBar: true,
-  launchAtLogin: false,
+  ...DEFAULT_PRESENCE_SETTINGS,
 };
 
 export function SettingsView() {
@@ -251,7 +252,7 @@ export function SettingsView() {
               <p className="eyebrow">Presence</p>
               <h3>Launch behavior</h3>
             </div>
-            <span>{settings.menuBarServiceMode ? "Service" : "Application"}</span>
+            <span>{serviceModeLabel(settings.menuBarServiceMode)}</span>
           </div>
           <label className="settings-toggle">
             <input
@@ -273,7 +274,7 @@ export function SettingsView() {
           <label className="settings-toggle">
             <input
               checked={settings.startHidden}
-              disabled={saving || loading || !settings.menuBarServiceMode}
+              disabled={saving || loading || !presenceSubSettingsEnabled(settings.menuBarServiceMode)}
               onChange={(event) =>
                 void saveSettings({
                   ...settings,
@@ -287,7 +288,7 @@ export function SettingsView() {
           <label className="settings-toggle">
             <input
               checked={settings.closeHidesToMenuBar}
-              disabled={saving || loading || !settings.menuBarServiceMode}
+              disabled={saving || loading || !presenceSubSettingsEnabled(settings.menuBarServiceMode)}
               onChange={(event) =>
                 void saveSettings({
                   ...settings,

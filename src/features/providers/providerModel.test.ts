@@ -84,6 +84,29 @@ describe("provider model helpers", () => {
     ).toBe(false);
   });
 
+  it("allows static and fallback catalogs without a live verification", () => {
+    expect(
+      providerDispatchBlocked({
+        ...provider,
+        id: "codex",
+        name: "Codex (ChatGPT Plus)",
+        authMode: "none",
+        credentialStatus: "not-required",
+        catalogSource: "static",
+        models: [{ id: "gpt-5.5", ownedBy: "openai-codex" }],
+      }),
+    ).toBe(false);
+    expect(
+      providerDispatchBlocked({
+        ...provider,
+        id: "anthropic",
+        credentialStatus: "stored",
+        catalogSource: "fallback",
+        models: [{ id: "claude-sonnet-4-20250514", ownedBy: null }],
+      }),
+    ).toBe(false);
+  });
+
   it("replaces one provider without reordering the inventory", () => {
     const replacement = {
       ...provider,

@@ -2,6 +2,7 @@ import type { ProviderAdapterStatus } from "../../../lib/types";
 import {
   credentialLabel,
   credentialStatusClass,
+  providerUsesCliSession,
 } from "../providerModel";
 
 interface ProviderDetailProps {
@@ -44,6 +45,12 @@ function credentialTitle(authMode: string): string {
 }
 
 function noKeyMessage(provider: ProviderAdapterStatus): string {
+  if (provider.id === "claude-code") {
+    return "Uses your Claude Pro subscription via the Claude CLI. Run `claude login` in a terminal if chat is blocked.";
+  }
+  if (provider.id === "codex") {
+    return "Uses your ChatGPT Plus subscription via the Codex CLI. Run `codex login` in a terminal if chat is blocked.";
+  }
   if (provider.baseUrl.startsWith("stdio://")) {
     return "This adapter needs no API key — it connects over a local stdio bridge.";
   }
@@ -51,6 +58,9 @@ function noKeyMessage(provider: ProviderAdapterStatus): string {
 }
 
 function checkHint(provider: ProviderAdapterStatus): string {
+  if (providerUsesCliSession(provider)) {
+    return "Checks CLI install and subscription login status";
+  }
   return isLocalProvider(provider)
     ? "Probes the local endpoint"
     : "Runs a live request to the cloud endpoint";
@@ -76,8 +86,7 @@ export function ProviderDetail({
 
   const health = providerHealth(provider);
   const keyProvider = usesKey(provider);
-  const sharedKey =
-    provider.id === "codex" || provider.id === "openai-compatible";
+  const sharedKey = provider.id === "openai-compatible";
 
   return (
     <section className="pv-panel pv-detail" aria-label="Provider detail">
@@ -152,8 +161,8 @@ export function ProviderDetail({
             <p className="pv-cred-title">{credentialTitle(provider.authMode)}</p>
             {sharedKey ? (
               <p className="pv-shared">
-                OpenAI-compatible and Codex share this encrypted key — saving or
-                removing here affects both.
+                This key is stored for pay-per-use OpenAI API access. Codex
+                (ChatGPT Plus) uses the Codex CLI login instead.
               </p>
             ) : null}
             <div className="pv-cred-row">

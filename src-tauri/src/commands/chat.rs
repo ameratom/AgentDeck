@@ -10,8 +10,7 @@ use tauri::AppHandle;
 use crate::commands::chat_providers;
 use crate::commands::providers;
 use crate::models::{
-    ChatMessage, ChatPreferences, ChatRequest, ChatResponse, ChatStreamEvent,
-    LocalModel,
+    ChatMessage, ChatPreferences, ChatRequest, ChatResponse, ChatStreamEvent, LocalModel,
 };
 use crate::storage;
 
@@ -88,11 +87,7 @@ pub async fn stream_chat_message(
     let verification_model = request.model.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let base_url = providers::provider_base_url(&verification_definition);
-        providers::verify_provider_model(
-            &verification_definition,
-            &base_url,
-            &verification_model,
-        )
+        providers::verify_provider_model(&verification_definition, &base_url, &verification_model)
     })
     .await
     .map_err(|error| format!("provider verification task failed: {error}"))??;
@@ -165,7 +160,41 @@ pub async fn load_chat_messages(
         .map_err(|error| format!("message load task failed: {error}"))?
 }
 
-fn send_chat_blocking(database_path: PathBuf, request: ChatRequest) -> Result<ChatResponse, String> {
+#[tauri::command]
+pub async fn clear_chat_messages(
+    app: AppHandle,
+    conversation_id: String,
+) -> Result<(), String> {
+    storage::validate_identifier("conversation ID", &conversation_id)?;
+    let database_path = database_path(&app)?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let started_at = Utc::now();
+        let connection = open_database(&database_path)?;
+        connection
+            .execute(
+                "DELETE FROM chat_messages WHERE conversation_id = ?1",
+                params![conversation_id],
+            )
+            .map_err(|error| format!("failed to clear chat messages: {error}"))?;
+        store_audit_event(
+            &database_path,
+            "chat.clear",
+            "success",
+            "",
+            &conversation_id,
+            started_at,
+        )?;
+        Ok(())
+    })
+    .await
+    .map_err(|error| format!("chat clear task failed: {error}"))?
+}
+
+fn send_chat_blocking(
+    database_path: PathBuf,
+    request: ChatRequest,
+) -> Result<ChatResponse, String> {
     let started_at = Utc::now();
     let definition = providers::find_provider(&request.provider_id)?;
     let messages = project_scoped_messages(&database_path, &request)?;
@@ -174,17 +203,12 @@ fn send_chat_blocking(database_path: PathBuf, request: ChatRequest) -> Result<Ch
 
     match completion_result {
         Ok((content, finish_reason)) => {
-            persist_chat_exchange(
-                &database_path,
-                &request,
-                &content,
-                started_at,
-                "success",
+            persist_chat_exchange(&database_path, &request, &content, started_at, "success").map(
+                |mut response| {
+                    response.finish_reason = finish_reason;
+                    response
+                },
             )
-            .map(|mut response| {
-                response.finish_reason = finish_reason;
-                response
-            })
         }
         Err(error) => {
             let _ = store_audit_event(
