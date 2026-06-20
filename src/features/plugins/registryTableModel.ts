@@ -18,7 +18,7 @@ export function matchesPluginFilter(
   }
 }
 
-export function matchesPluginQuery(
+function matchesPluginQuery(
   plugin: PluginDefinition,
   query: string,
 ): boolean {
@@ -49,7 +49,7 @@ export function filterPlugins(
   );
 }
 
-export function matchesSkillFilter(
+function matchesSkillFilter(
   skill: SkillDefinition,
   filter: SkillFilter,
 ): boolean {
