@@ -1,1 +1,49 @@
-[]
+[
+  {
+    "id": "task-009",
+    "title": "Compact Audit view with master-detail layout and shared compact status indicators",
+    "scope": "ALLOW",
+    "files_hint": [
+      "src/features/audit/AuditView.tsx",
+      "src/features/audit/auditModel.ts",
+      "src/styles/globals.css"
+    ],
+    "acceptance": [
+      "pnpm verify passes",
+      "Audit uses compact workspace classes consistent with Handoffs and Projects",
+      "Selected event shows detail pane without widening the table grid"
+    ],
+    "deferred_if": "requires new Tauri audit detail command"
+  },
+  {
+    "id": "task-010",
+    "title": "Polish Chat CmdBar dictation errors and provider or model picker affordances",
+    "scope": "ALLOW",
+    "files_hint": [
+      "src/features/chat/cmdbar/CmdBar.tsx",
+      "src/features/chat/cmdbar/useCmdBarDictation.ts",
+      "src/features/chat/ChatView.tsx"
+    ],
+    "acceptance": [
+      "pnpm verify passes",
+      "Dictation failures surface inline status instead of silent no-op",
+      "Provider and model controls remain usable in compact header layout"
+    ],
+    "deferred_if": "requires new speech APIs or provider schema changes"
+  },
+  {
+    "id": "task-011",
+    "title": "Harden ChatGPT review health check for custom-domain Cloudflare tunnels",
+    "scope": "ALLOW",
+    "files_hint": [
+      "scripts/check-chatgpt-review-health.sh",
+      "src-tauri/src/chatgpt_review.rs"
+    ],
+    "acceptance": [
+      "pnpm verify passes",
+      "Health check reports when MCP_PUBLIC_RESOURCE_URL hostname returns 530 with actionable cloudflared hint",
+      "Hermes review public-tools-list probe failure detail mentions tunnel connector status"
+    ],
+    "deferred_if": "requires cloudflared credentials or network policy changes"
+  }
+]
