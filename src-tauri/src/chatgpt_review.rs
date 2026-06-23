@@ -230,6 +230,22 @@ fn localhost_mcp_listening() -> bool {
     TcpStream::connect_timeout(&address, Duration::from_millis(500)).is_ok()
 }
 
+fn format_public_probe_http_error(url: &str, status_code: u16) -> String {
+    if status_code == 530 {
+        return format!(
+            "tools/list returned HTTP 530 for {url} — Cloudflare origin unreachable. Ensure the agentdeck-mcp cloudflared connector is running (`cloudflared tunnel info agentdeck-mcp` or `./scripts/install-cloudflared-service.sh`)."
+        );
+    }
+
+    if status_code == 502 || status_code == 503 {
+        return format!(
+            "tools/list returned HTTP {status_code} for {url} — tunnel is up but local MCP is unreachable. Launch AgentDeck so http://127.0.0.1:{MCP_HTTP_PORT}/mcp is listening."
+        );
+    }
+
+    format!("tools/list returned HTTP {status_code} for {url}")
+}
+
 fn probe_tools_list_count(url: &str) -> Result<usize, String> {
     let client = Client::builder()
         .timeout(Duration::from_secs(12))
@@ -248,10 +264,7 @@ fn probe_tools_list_count(url: &str) -> Result<usize, String> {
         .map_err(|error| format!("tools/list request failed for {url}: {error}"))?;
 
     if !response.status().is_success() {
-        return Err(format!(
-            "tools/list returned HTTP {} for {url}",
-            response.status()
-        ));
+        return Err(format_public_probe_http_error(url, response.status().as_u16()));
     }
 
     let body: Value = response
@@ -292,6 +305,27 @@ mod tests {
         assert!(profile.deferred_tools_exposed.is_empty());
         assert!(profile.missing_output_schema.is_empty());
         assert!(profile.non_read_only_tools.is_empty());
+    }
+
+    #[test]
+    fn public_probe_http_error_mentions_cloudflared_for_530() {
+        let message = format_public_probe_http_error(
+            "https://mcp.example.com/mcp",
+            530,
+        );
+        assert!(message.contains("HTTP 530"));
+        assert!(message.contains("cloudflared"));
+        assert!(message.contains("agentdeck-mcp"));
+    }
+
+    #[test]
+    fn public_probe_http_error_mentions_local_mcp_for_502() {
+        let message = format_public_probe_http_error(
+            "https://mcp.example.com/mcp",
+            502,
+        );
+        assert!(message.contains("HTTP 502"));
+        assert!(message.contains("Launch AgentDeck"));
     }
 
     #[test]

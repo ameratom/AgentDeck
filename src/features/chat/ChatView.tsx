@@ -571,7 +571,13 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
             <label className="chat-field chat-field--provider ch-topbar-field">
               <span>Provider</span>
               <select
+                aria-label="Chat provider"
                 disabled={loading || sending || providers.length === 0}
+                title={
+                  providers.length === 0
+                    ? "No providers configured"
+                    : selectedProvider?.name
+                }
                 onChange={(event) => {
                   const nextProviderId = event.target.value;
                   userOverrodeProviderRef.current = true;
@@ -596,11 +602,18 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
             <label className="chat-field chat-field--model ch-topbar-field">
               <span>Model</span>
               <select
+                aria-label="Chat model"
                 disabled={
                   loading ||
                   sending ||
                   !selectedProvider ||
                   modelOptions.length === 0
+                }
+                title={
+                  selectedModel ||
+                  (modelOptions.length === 0
+                    ? "Load models for the selected provider"
+                    : "Select a model")
                 }
                 onChange={(event) => {
                   userOverrodeProviderRef.current = true;

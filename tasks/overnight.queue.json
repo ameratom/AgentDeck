@@ -1,49 +1,45 @@
 [
   {
-    "id": "task-009",
-    "title": "Compact Audit view with master-detail layout and shared compact status indicators",
+    "id": "task-012",
+    "title": "Add regression tests for compact Audit helpers and selected-event detail contract",
     "scope": "ALLOW",
     "files_hint": [
-      "src/features/audit/AuditView.tsx",
       "src/features/audit/auditModel.ts",
-      "src/styles/globals.css"
+      "src/features/audit/auditModel.test.ts"
     ],
     "acceptance": [
       "pnpm verify passes",
-      "Audit uses compact workspace classes consistent with Handoffs and Projects",
-      "Selected event shows detail pane without widening the table grid"
+      "auditStatusDotClass and auditActionLabel have unit coverage"
     ],
     "deferred_if": "requires new Tauri audit detail command"
   },
   {
-    "id": "task-010",
-    "title": "Polish Chat CmdBar dictation errors and provider or model picker affordances",
+    "id": "task-013",
+    "title": "Add CmdBar dictation error formatting tests for speech recognition failures",
     "scope": "ALLOW",
     "files_hint": [
-      "src/features/chat/cmdbar/CmdBar.tsx",
       "src/features/chat/cmdbar/useCmdBarDictation.ts",
-      "src/features/chat/ChatView.tsx"
+      "src/features/chat/cmdbar/cmdbarDictation.test.ts"
     ],
     "acceptance": [
       "pnpm verify passes",
-      "Dictation failures surface inline status instead of silent no-op",
-      "Provider and model controls remain usable in compact header layout"
+      "not-allowed and no-speech dictation errors map to user-facing strings"
     ],
-    "deferred_if": "requires new speech APIs or provider schema changes"
+    "deferred_if": "requires browser speech APIs in CI"
   },
   {
-    "id": "task-011",
-    "title": "Harden ChatGPT review health check for custom-domain Cloudflare tunnels",
+    "id": "task-014",
+    "title": "Extend ChatGPT public probe tests for HTTP 530 and 502 tunnel failure hints",
     "scope": "ALLOW",
     "files_hint": [
-      "scripts/check-chatgpt-review-health.sh",
-      "src-tauri/src/chatgpt_review.rs"
+      "src-tauri/src/chatgpt_review.rs",
+      "scripts/check-chatgpt-review-health.sh"
     ],
     "acceptance": [
       "pnpm verify passes",
-      "Health check reports when MCP_PUBLIC_RESOURCE_URL hostname returns 530 with actionable cloudflared hint",
-      "Hermes review public-tools-list probe failure detail mentions tunnel connector status"
+      "530 errors mention cloudflared connector recovery",
+      "502 errors mention launching AgentDeck locally"
     ],
-    "deferred_if": "requires cloudflared credentials or network policy changes"
+    "deferred_if": "requires live Cloudflare or tunnel credentials"
   }
 ]

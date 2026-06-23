@@ -165,7 +165,7 @@ pub fn run_overnight(repo_root: &Path, queue_path: &Path, execute_verify: bool) 
     let mut task_results = Vec::new();
     let mut test_failures = Vec::new();
     let known_limitations = vec![
-        "Composer bridge uses `cursor agent --print --mode plan`; suggested commands are never auto-executed.".to_owned(),
+        "Composer bridge uses `cursor agent --print` with AGENTDECK_COMPOSER_CURSOR_MODE (default plan; set agent for patch output); suggested commands are never auto-executed.".to_owned(),
         "Overnight loop does not commit or push.".to_owned(),
     ];
 

@@ -36,6 +36,24 @@ export function auditStatusClass(status: string): string {
   }
 }
 
+export function auditStatusDotClass(status: string): string {
+  switch (status) {
+    case "completed":
+      return "compact-status-dot completed";
+    case "failed":
+      return "compact-status-dot failed";
+    case "running":
+      return "compact-status-dot running";
+    default:
+      return "compact-status-dot pending";
+  }
+}
+
+export function auditActionLabel(action: string): string {
+  const parts = action.split(".");
+  return parts[parts.length - 1] ?? action;
+}
+
 export function hasMoreAuditEvents(offset: number, total: number): boolean {
   return offset < total;
 }

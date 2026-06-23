@@ -467,6 +467,10 @@ nav {
   line-height: 1.4;
 }
 
+.cmdbar-hint--error {
+  color: #e0a0a0;
+}
+
 .cmdbar-input {
   width: 100%;
   min-height: 24px;
@@ -5258,6 +5262,194 @@ table.ag-pm td.ag-pm-cell {
 
 .mcp-toggle-note code {
   color: #9ec8df;
+}
+
+.audit-workspace--compact,
+.audit-workspace.audit-workspace--compact {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.au-compact-header,
+.au-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.au-compact-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.au-compact-subtitle {
+  max-width: 52ch;
+  color: #8fa0a8;
+  font-size: 13px;
+}
+
+.au-compact-header-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.au-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.au-scan-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #9eb0b8;
+  font-size: 12px;
+}
+
+.au-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #2a353d;
+  background: #12181d;
+  color: #9eb0b8;
+  font-size: 11px;
+}
+
+.au-body {
+  flex: 1;
+  min-height: 0;
+}
+
+.au-master-detail {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  gap: 12px;
+  overflow: hidden;
+}
+
+.au-registry,
+.au-detail-pane {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.au-registry-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.au-registry-item {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #2a353d;
+  border-radius: 10px;
+  background: #141b20;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.au-registry-item:hover {
+  border-color: #3a4a55;
+  background: #182128;
+}
+
+.au-registry-item.selected {
+  border-color: #4f6f84;
+  background: #1a2831;
+  box-shadow: inset 0 0 0 1px rgba(95, 150, 180, 0.18);
+}
+
+.au-registry-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.au-registry-action {
+  font-size: 12px;
+  font-weight: 600;
+  color: #d7e4ea;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.au-registry-meta {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  color: #7d9099;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.au-detail-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid #1f2a33;
+  border-radius: 12px;
+  background: rgba(10, 15, 20, 0.88);
+}
+
+.au-detail-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.au-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+  margin: 0;
+}
+
+.au-detail-grid div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.au-detail-grid dt {
+  margin: 0;
+  color: #647983;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.au-detail-grid dd {
+  margin: 0;
+  color: #c2d2d9;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  word-break: break-word;
 }
 
 .audit-controls {

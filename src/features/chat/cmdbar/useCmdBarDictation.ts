@@ -7,6 +7,11 @@ type SpeechRecognitionResultLike = {
   };
 };
 
+type SpeechRecognitionErrorEventLike = {
+  error?: string;
+  message?: string;
+};
+
 type SpeechRecognitionEventLike = {
   resultIndex: number;
   results: {
@@ -21,7 +26,7 @@ type SpeechRecognitionLike = {
   lang: string;
   onresult: ((event: SpeechRecognitionEventLike) => void) | null;
   onend: (() => void) | null;
-  onerror: (() => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
   start: () => void;
   stop: () => void;
 };
@@ -38,9 +43,31 @@ function speechRecognitionCtor(): SpeechRecognitionConstructor | null {
   return win.SpeechRecognition ?? win.webkitSpeechRecognition ?? null;
 }
 
+export function formatDictationError(error: string | undefined): string {
+  switch (error) {
+    case "not-allowed":
+      return "Microphone access denied. Allow speech recognition in System Settings.";
+    case "service-not-allowed":
+      return "Speech recognition is disabled for this browser context.";
+    case "no-speech":
+      return "No speech detected. Try again closer to the microphone.";
+    case "audio-capture":
+      return "No microphone available for dictation.";
+    case "network":
+      return "Dictation failed due to a network error.";
+    case "aborted":
+      return "Dictation stopped.";
+    default:
+      return error
+        ? `Dictation failed (${error}).`
+        : "Dictation failed. Try again.";
+  }
+}
+
 export function useCmdBarDictation(onFinalTranscript: (text: string) => void) {
   const speechSupported = useMemo(() => speechRecognitionCtor() !== null, []);
   const [listening, setListening] = useState(false);
+  const [dictationError, setDictationError] = useState<string | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
 
   const stopDictation = useCallback(() => {
@@ -49,8 +76,13 @@ export function useCmdBarDictation(onFinalTranscript: (text: string) => void) {
     setListening(false);
   }, []);
 
+  const clearDictationError = useCallback(() => {
+    setDictationError(null);
+  }, []);
+
   const toggleDictation = useCallback(() => {
     if (!speechSupported) {
+      setDictationError("Dictation is not supported in this browser.");
       return;
     }
 
@@ -61,8 +93,11 @@ export function useCmdBarDictation(onFinalTranscript: (text: string) => void) {
 
     const Ctor = speechRecognitionCtor();
     if (!Ctor) {
+      setDictationError("Dictation is not supported in this browser.");
       return;
     }
+
+    setDictationError(null);
 
     const recognition = new Ctor();
     recognition.continuous = true;
@@ -77,6 +112,7 @@ export function useCmdBarDictation(onFinalTranscript: (text: string) => void) {
         }
       }
       if (finalText.trim()) {
+        setDictationError(null);
         onFinalTranscript(finalText.trim());
       }
     };
@@ -86,17 +122,33 @@ export function useCmdBarDictation(onFinalTranscript: (text: string) => void) {
       setListening(false);
     };
 
-    recognition.onerror = () => {
+    recognition.onerror = (event: SpeechRecognitionErrorEventLike) => {
       recognitionRef.current = null;
       setListening(false);
+      if (event.error !== "aborted") {
+        setDictationError(formatDictationError(event.error));
+      }
     };
 
-    recognitionRef.current = recognition;
-    recognition.start();
-    setListening(true);
+    try {
+      recognitionRef.current = recognition;
+      recognition.start();
+      setListening(true);
+    } catch {
+      recognitionRef.current = null;
+      setListening(false);
+      setDictationError("Unable to start dictation.");
+    }
   }, [listening, onFinalTranscript, speechSupported, stopDictation]);
 
   useEffect(() => () => stopDictation(), [stopDictation]);
 
-  return { speechSupported, listening, toggleDictation, stopDictation };
+  return {
+    speechSupported,
+    listening,
+    dictationError,
+    clearDictationError,
+    toggleDictation,
+    stopDictation,
+  };
 }

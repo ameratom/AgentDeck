@@ -72,10 +72,19 @@ echo
 echo "Public MCP endpoint"
 if [[ -n "$PUBLIC_URL" ]]; then
   PUBLIC_JSON="$(mcp_post "$PUBLIC_URL" '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' || true)"
+  PUBLIC_HTTP="$(curl -sS --max-time 15 -o /dev/null -w "%{http_code}" -X POST "$PUBLIC_URL" \
+    -H 'Content-Type: application/json' \
+    -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' || echo "000")"
   if [[ -n "$PUBLIC_JSON" ]] && echo "$PUBLIC_JSON" | jq -e '.result.tools | length == 10' >/dev/null 2>&1; then
     pass "public tools/list returned 10 tools at $PUBLIC_URL"
   else
-    fail "public tools/list failed at $PUBLIC_URL"
+    fail "public tools/list failed at $PUBLIC_URL (HTTP ${PUBLIC_HTTP})"
+    if [[ "$PUBLIC_HTTP" == "530" ]]; then
+      echo "  ⚠ Cloudflare 530 — run: cloudflared tunnel info agentdeck-mcp"
+      echo "  ⚠ Fix: ./scripts/install-cloudflared-service.sh"
+    elif [[ "$PUBLIC_HTTP" == "502" || "$PUBLIC_HTTP" == "503" ]]; then
+      echo "  ⚠ Tunnel is up but AgentDeck MCP is not listening on 127.0.0.1:7823"
+    fi
   fi
 else
   fail "MCP_PUBLIC_RESOURCE_URL not configured in $LOCAL_ENV"

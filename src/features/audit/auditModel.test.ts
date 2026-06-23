@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { AuditEventRecord } from "../../lib/types";
 import {
+  auditActionLabel,
   auditStatusClass,
+  auditStatusDotClass,
   canOpenHandoffRun,
   formatAuditDuration,
   formatAuditTimestamp,
@@ -35,6 +37,8 @@ describe("audit model helpers", () => {
   it("maps audit status classes", () => {
     expect(auditStatusClass("completed")).toBe("audit-status completed");
     expect(auditStatusClass("failed")).toBe("audit-status failed");
+    expect(auditStatusDotClass("running")).toBe("compact-status-dot running");
+    expect(auditActionLabel("handoff.dispatch")).toBe("dispatch");
   });
 
   it("detects handoff audit rows that can open stored runs", () => {

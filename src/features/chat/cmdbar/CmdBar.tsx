@@ -144,7 +144,7 @@ export function CmdBar({
     [setDraft],
   );
 
-  const { speechSupported, listening, toggleDictation } =
+  const { speechSupported, listening, dictationError, clearDictationError, toggleDictation } =
     useCmdBarDictation(appendTranscript);
 
   const enabledConnectorCount = countEnabledConnectors(connectors);
@@ -293,13 +293,13 @@ export function CmdBar({
       }}
       ref={popoverRootRef}
     >
-      {composerHint ? (
+      {composerHint || dictationError ? (
         <p
-          className="cmdbar-hint"
+          className={dictationError ? "cmdbar-hint cmdbar-hint--error" : "cmdbar-hint"}
           id="chat-composer-hint"
           role="status"
         >
-          {composerHint}
+          {dictationError ?? composerHint}
         </p>
       ) : null}
 
@@ -309,6 +309,9 @@ export function CmdBar({
         className="cmdbar-input"
         disabled={loading || previewBlocked || clearing}
         onChange={(event) => {
+          if (dictationError) {
+            clearDictationError();
+          }
           setDraft(event.target.value);
           autogrow(event.target);
         }}
@@ -480,9 +483,8 @@ export function CmdBar({
             disabled={!speechSupported}
             onClick={toggleDictation}
             title={
-              speechSupported
-                ? undefined
-                : "Dictation not supported here"
+              dictationError ??
+              (speechSupported ? undefined : "Dictation not supported here")
             }
             type="button"
           >

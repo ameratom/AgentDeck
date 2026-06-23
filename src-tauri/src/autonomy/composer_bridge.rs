@@ -10,11 +10,29 @@ use super::composer::{ComposerError, ComposerRequest, ComposerResponse};
 
 const DEFAULT_MODEL: &str = "composer-2.5-fast";
 const DEFAULT_TIMEOUT_SECS: u64 = 600;
+const DEFAULT_CURSOR_MODE: &str = "plan";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ComposerBridgeKind {
     CursorAgent,
     DryRun,
+}
+
+pub fn cursor_mode_from_env() -> String {
+    let mode = std::env::var("AGENTDECK_COMPOSER_CURSOR_MODE")
+        .unwrap_or_else(|_| DEFAULT_CURSOR_MODE.to_owned())
+        .trim()
+        .to_ascii_lowercase();
+
+    match mode.as_str() {
+        "plan" | "agent" => mode,
+        other => {
+            eprintln!(
+                "AGENTDECK_COMPOSER_CURSOR_MODE={other} is unsupported; using {DEFAULT_CURSOR_MODE}"
+            );
+            DEFAULT_CURSOR_MODE.to_owned()
+        }
+    }
 }
 
 pub fn bridge_kind_from_env() -> ComposerBridgeKind {
@@ -64,6 +82,7 @@ fn invoke_cursor_agent(request: &ComposerRequest) -> Result<ComposerResponse, Co
         .and_then(|value| value.parse::<u64>().ok())
         .unwrap_or(DEFAULT_TIMEOUT_SECS);
 
+    let cursor_mode = cursor_mode_from_env();
     let prompt = build_prompt(request);
     let repo_root = Path::new(&request.repo_root);
     if !repo_root.is_dir() {
@@ -79,7 +98,7 @@ fn invoke_cursor_agent(request: &ComposerRequest) -> Result<ComposerResponse, Co
         .arg("--print")
         .arg("--trust")
         .arg("--mode")
-        .arg("plan")
+        .arg(&cursor_mode)
         .arg("--workspace")
         .arg(repo_root)
         .arg("--model")
@@ -475,6 +494,19 @@ mod tests {
             )]),
             constraints: vec!["no dependency changes".to_owned()],
             expected_patch_format: PatchFormat::UnifiedDiff,
+        }
+    }
+
+    #[test]
+    fn cursor_mode_from_env_defaults_to_plan() {
+        let previous = std::env::var("AGENTDECK_COMPOSER_CURSOR_MODE").ok();
+        std::env::remove_var("AGENTDECK_COMPOSER_CURSOR_MODE");
+        assert_eq!(cursor_mode_from_env(), "plan");
+        std::env::set_var("AGENTDECK_COMPOSER_CURSOR_MODE", "agent");
+        assert_eq!(cursor_mode_from_env(), "agent");
+        match previous {
+            Some(value) => std::env::set_var("AGENTDECK_COMPOSER_CURSOR_MODE", value),
+            None => std::env::remove_var("AGENTDECK_COMPOSER_CURSOR_MODE"),
         }
     }
 
