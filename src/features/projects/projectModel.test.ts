@@ -3,6 +3,7 @@ import type { ProjectWorkspace } from "../../lib/types";
 import {
   defaultProjectName,
   normalizeProjectPath,
+  projectFileStateLabel,
   sortProjects,
   validateProjectPath,
 } from "./projectModel";
@@ -15,9 +16,14 @@ function project(
   return {
     id,
     name,
+    description: "",
     path: `/workspace/${id}`,
     exists: true,
     active,
+    formatVersion: null,
+    projectFileState: "legacy",
+    projectFileDigest: null,
+    autonomyRestrictions: { askFirst: [], deny: [] },
     createdAt: "2026-06-13T12:00:00Z",
     updatedAt: "2026-06-13T12:00:00Z",
   };
@@ -48,5 +54,13 @@ describe("project model helpers", () => {
     ]);
 
     expect(sorted.map(({ id }) => id)).toEqual(["active", "alpha", "zulu"]);
+  });
+
+  it("labels project file states for review", () => {
+    expect(projectFileStateLabel("legacy")).toBe("Legacy");
+    expect(projectFileStateLabel("synced")).toBe("v2 synced");
+    expect(projectFileStateLabel("changed")).toBe("Review changes");
+    expect(projectFileStateLabel("invalid")).toBe("Invalid file");
+    expect(projectFileStateLabel("missing")).toBe("File missing");
   });
 });

@@ -39,3 +39,20 @@ export function sortProjects(
     });
   });
 }
+
+export function projectFileStateLabel(
+  state: ProjectWorkspace["projectFileState"],
+): string {
+  switch (state) {
+    case "synced":
+      return "v2 synced";
+    case "changed":
+      return "Review changes";
+    case "invalid":
+      return "Invalid file";
+    case "missing":
+      return "File missing";
+    default:
+      return "Legacy";
+  }
+}

@@ -227,24 +227,31 @@ export function SettingsView() {
   }
 
   return (
-    <section className="workspace settings-workspace">
-      <header>
+    <section className="workspace settings-workspace settings-workspace--compact">
+      <header className="st-compact-header">
         <div>
           <p className="eyebrow">Phase 9 / Hardening</p>
           <h2>Settings</h2>
-          <p>
+          <p className="st-compact-subtitle">
             Control export redaction and manage local data snapshots. These
             settings stay on this machine.
           </p>
         </div>
-        <span className="phase-badge">Privacy first</span>
+        <div className="st-compact-header-meta">
+          <span className="st-pill">Privacy first</span>
+          <div className="st-scan-state" role="status">
+            <span
+              aria-hidden="true"
+              className={
+                loading || saving || busyAction ? "pulse indicator" : "indicator"
+              }
+            />
+            <span>{status}</span>
+          </div>
+        </div>
       </header>
 
-      <p className="settings-status" role="status">
-        <span className={loading || saving || busyAction ? "pulse indicator" : "indicator"} />
-        {status}
-      </p>
-
+      <div className="st-body">
       <section className="settings-grid">
         <article className="settings-card">
           <div className="settings-card-heading">
@@ -845,6 +852,7 @@ export function SettingsView() {
           </button>
         </article>
       </section>
+      </div>
     </section>
   );
 }

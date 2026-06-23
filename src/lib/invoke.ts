@@ -32,6 +32,8 @@ import type {
   AuditEventsPage,
   LegacyCredentialImportResult,
   ProjectWorkspaceList,
+  ProjectFilePreview,
+  AutonomyRestrictions,
   WebhookDispatchResult,
   WebhookEndpointMatrix,
 } from "./types";
@@ -188,6 +190,37 @@ export function removeProject(
   projectId: string,
 ): Promise<ProjectWorkspaceList> {
   return invoke<ProjectWorkspaceList>("remove_project", { projectId });
+}
+
+export function previewProjectFile(
+  projectId: string,
+): Promise<ProjectFilePreview> {
+  return invoke<ProjectFilePreview>("preview_project_file", { projectId });
+}
+
+export function saveProjectFile(
+  projectId: string,
+): Promise<ProjectWorkspaceList> {
+  return invoke<ProjectWorkspaceList>("save_project_file", { projectId });
+}
+
+export function applyProjectFile(
+  projectId: string,
+  expectedDigest: string,
+): Promise<ProjectWorkspaceList> {
+  return invoke<ProjectWorkspaceList>("apply_project_file", {
+    projectId,
+    expectedDigest,
+  });
+}
+
+export function saveProjectRestrictions(
+  projectId: string,
+  restrictions: AutonomyRestrictions,
+): Promise<ProjectWorkspaceList> {
+  return invoke<ProjectWorkspaceList>("save_project_restrictions", {
+    request: { projectId, restrictions },
+  });
 }
 
 export function loadRouterRules(): Promise<RouterRuleMatrix> {

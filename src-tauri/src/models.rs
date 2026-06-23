@@ -274,6 +274,12 @@ pub struct HandoffRequest {
     pub task: String,
     pub context: String,
     pub approvals: Vec<String>,
+    #[serde(default)]
+    pub mission_id: Option<String>,
+    #[serde(default)]
+    pub parent_run_id: Option<String>,
+    #[serde(default)]
+    pub required_capabilities: Vec<Capability>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -297,6 +303,61 @@ pub struct HandoffRun {
     pub audit_ref: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    pub mission_id: Option<String>,
+    pub parent_run_id: Option<String>,
+    pub required_capabilities: Vec<Capability>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Capability {
+    ReadFiles,
+    WriteFiles,
+    RunShell,
+    AccessNetwork,
+    UseBrowser,
+    SendMessages,
+    ModifyGit,
+    ManageProcesses,
+    CallMcpTools,
+    StoreMemory,
+    Deploy,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MissionSummary {
+    pub id: String,
+    pub project_id: Option<String>,
+    pub title: String,
+    pub status: String,
+    pub summary: Option<String>,
+    pub run_count: u32,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MissionDetail {
+    pub mission: MissionSummary,
+    pub runs: Vec<HandoffRun>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateMissionRequest {
+    pub project_id: Option<String>,
+    pub title: String,
+    pub summary: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachMissionRunRequest {
+    pub mission_id: String,
+    pub run_id: String,
+    pub parent_run_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -537,6 +598,8 @@ pub struct HandoffRouteRequest {
     pub source_agent_id: String,
     pub title: String,
     pub task: String,
+    #[serde(default)]
+    pub required_capabilities: Vec<Capability>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -551,14 +614,45 @@ pub struct HandoffRouteSuggestion {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RouteCandidate {
+    pub provider_id: String,
+    pub model_id: Option<String>,
+    pub capabilities: Vec<Capability>,
+    pub compatible: bool,
+    pub missing_capabilities: Vec<Capability>,
+    pub score: i32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoutePreview {
+    pub selected: Option<HandoffRouteSuggestion>,
+    pub candidates: Vec<RouteCandidate>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProjectWorkspace {
     pub id: String,
     pub name: String,
+    pub description: String,
     pub path: String,
     pub exists: bool,
     pub active: bool,
+    pub format_version: Option<u32>,
+    pub project_file_state: String,
+    pub project_file_digest: Option<String>,
+    pub autonomy_restrictions: AutonomyRestrictions,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveProjectRestrictionsRequest {
+    pub project_id: String,
+    pub restrictions: AutonomyRestrictions,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -573,6 +667,105 @@ pub struct ProjectWorkspaceList {
 pub struct RegisterProjectRequest {
     pub path: String,
     pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectDocumentV2 {
+    pub kind: String,
+    pub format_version: u32,
+    pub metadata: ProjectDocumentMetadata,
+    pub connectors: ProjectDocumentConnectors,
+    pub credentials: ProjectDocumentCredentials,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AutonomyRestrictions {
+    #[serde(default)]
+    pub ask_first: Vec<String>,
+    #[serde(default)]
+    pub deny: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectDocumentV3 {
+    pub kind: String,
+    pub format_version: u32,
+    pub metadata: ProjectDocumentMetadata,
+    pub connectors: ProjectDocumentConnectors,
+    pub credentials: ProjectDocumentCredentials,
+    #[serde(default)]
+    pub autonomy_restrictions: AutonomyRestrictions,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderUsageSummary {
+    pub provider_id: String,
+    pub window_days: u32,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub estimated_events: u32,
+    pub measured_events: u32,
+    pub estimated_usd: Option<f64>,
+    pub monthly_budget_usd: Option<f64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveProviderBudgetRequest {
+    pub provider_id: String,
+    pub monthly_budget_usd: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectDocumentMetadata {
+    pub name: String,
+    pub description: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectDocumentConnectors {
+    pub filesystem: bool,
+    pub git: bool,
+    pub claude_code_serve: bool,
+    pub grok_mcp: bool,
+    pub xai_research_mcp: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectDocumentCredentials {
+    pub required_slots: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectFileChange {
+    pub field: String,
+    pub current_value: String,
+    pub file_value: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectFilePreview {
+    pub project_id: String,
+    pub path: String,
+    pub valid: bool,
+    pub detected_format: Option<u32>,
+    pub current_digest: Option<String>,
+    pub file_digest: Option<String>,
+    pub changes: Vec<ProjectFileChange>,
+    pub warnings: Vec<String>,
+    pub can_apply: bool,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

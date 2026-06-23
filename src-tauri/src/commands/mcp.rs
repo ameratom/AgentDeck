@@ -667,7 +667,7 @@ fn safe_error(value: &str) -> String {
     sanitize_text(value.lines().next().unwrap_or("MCP config error"))
 }
 
-fn default_connector_settings(
+pub(crate) fn default_connector_settings(
     database_path: &Path,
     project: &ProjectWorkspace,
 ) -> ProjectConnectorSettings {
@@ -709,7 +709,7 @@ fn connector_export_directory(database_path: &Path, project_id: &str) -> PathBuf
         .join(format!("{:016x}", storage::stable_hash(project_id)))
 }
 
-fn write_connector_exports(
+pub(crate) fn write_connector_exports(
     database_path: &Path,
     project: &ProjectWorkspace,
     request: &SaveProjectConnectorSettingsRequest,
@@ -1039,9 +1039,14 @@ mod tests {
         let project = ProjectWorkspace {
             id: "project:test".to_owned(),
             name: "Test Project".to_owned(),
+            description: String::new(),
             path: project_root.to_string_lossy().into_owned(),
             exists: true,
             active: true,
+            format_version: None,
+            project_file_state: "legacy".to_owned(),
+            project_file_digest: None,
+            autonomy_restrictions: crate::models::AutonomyRestrictions::default(),
             created_at: "now".to_owned(),
             updated_at: "now".to_owned(),
         };
@@ -1104,9 +1109,14 @@ mod tests {
         let project = ProjectWorkspace {
             id: "project:no-git".to_owned(),
             name: "No Git".to_owned(),
+            description: String::new(),
             path: directory.to_string_lossy().into_owned(),
             exists: true,
             active: true,
+            format_version: None,
+            project_file_state: "legacy".to_owned(),
+            project_file_digest: None,
+            autonomy_restrictions: crate::models::AutonomyRestrictions::default(),
             created_at: "now".to_owned(),
             updated_at: "now".to_owned(),
         };

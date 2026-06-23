@@ -207,6 +207,9 @@ fn load_runs(path: &Path, limit: usize) -> Result<Vec<HandoffRun>, String> {
                 audit_ref: row.get(15)?,
                 created_at: row.get(16)?,
                 updated_at: row.get(17)?,
+                mission_id: None,
+                parent_run_id: None,
+                required_capabilities: Vec::new(),
             })
         })
         .map_err(|error| format!("failed to load handoff runs: {error}"))?;
@@ -377,6 +380,9 @@ mod tests {
             task: "Summarize the changes.".to_owned(),
             context: "Focus on phase 6.".to_owned(),
             approvals: vec!["user-approved".to_owned()],
+            mission_id: None,
+            parent_run_id: None,
+            required_capabilities: Vec::new(),
         }
     }
 

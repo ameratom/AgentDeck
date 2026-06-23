@@ -5882,3 +5882,575 @@ table.ag-pm td.ag-pm-cell {
   flex-wrap: wrap;
   gap: 10px;
 }
+/* Projects compact */
+.projects-workspace.projects-workspace--compact {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100vh;
+  padding: 22px 26px 18px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.pr-compact-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  flex-shrink: 0;
+}
+
+.pr-compact-header h2 {
+  margin: 0 0 6px;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+}
+
+.pr-compact-subtitle {
+  max-width: 560px;
+  margin: 0;
+  color: #84939d;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.pr-compact-header-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 11px;
+  flex-shrink: 0;
+}
+
+.pr-summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.pr-scan-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #8499a2;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+}
+
+.pr-scan-state .indicator {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.pr-pill {
+  padding: 5px 9px;
+  border: 1px solid #303c45;
+  border-radius: 999px;
+  color: #8ba0a9;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.pr-pill b {
+  color: #cbdce2;
+  font-weight: 700;
+}
+
+.pr-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pr-register-toggle {
+  padding: 6px 12px;
+  border: 1px solid #3a4a55;
+  border-radius: 8px;
+  background: #1a2329;
+  color: #c8d8de;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.pr-register-toggle:hover:not(:disabled) {
+  border-color: #4d6270;
+  background: #212c34;
+}
+
+.pr-register-toggle:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.pr-register-popover {
+  flex-shrink: 0;
+  margin-top: 0;
+  padding: 0 16px 14px;
+}
+
+.pr-master-detail {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 12px;
+  overflow: hidden;
+}
+
+.pr-registry,
+.pr-detail-pane {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pr-registry-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pr-registry-item {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #2a353d;
+  border-radius: 10px;
+  background: #141b20;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pr-registry-item:hover {
+  border-color: #3a4a55;
+  background: #182128;
+}
+
+.pr-registry-item.selected {
+  border-color: #4f6f84;
+  background: #1a2831;
+  box-shadow: inset 0 0 0 1px rgba(95, 150, 180, 0.18);
+}
+
+.pr-registry-item.active:not(.selected) {
+  border-color: #355f4d;
+}
+
+.pr-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #5f7f8f;
+}
+
+.pr-status-dot.active {
+  background: #4fd08b;
+}
+
+.pr-status-dot.missing {
+  background: #c46a5d;
+}
+
+.pr-registry-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pr-registry-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #d7e4ea;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pr-registry-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  color: #7f939c;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pr-registry-badges {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.pr-registry-marker {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(79, 208, 139, 0.12);
+  color: #7ce2ad;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pr-detail-pane .project-card {
+  margin: 0;
+}
+
+.projects-workspace--compact .section-heading {
+  margin: 10px 0 8px;
+}
+
+.projects-workspace--compact .project-active-panel {
+  padding: 14px 16px;
+  gap: 16px;
+}
+
+.projects-workspace--compact .project-active-panel h3 {
+  margin-bottom: 4px;
+  font-size: 18px;
+}
+
+.projects-workspace--compact .project-register-panel {
+  margin-top: 0;
+  padding: 0 16px 14px;
+}
+
+.projects-workspace--compact .project-form {
+  gap: 10px;
+}
+
+.projects-workspace--compact .project-form button {
+  margin-top: 14px;
+}
+
+.projects-workspace--compact .project-list {
+  gap: 10px;
+}
+
+.projects-workspace--compact .project-card {
+  gap: 12px;
+  padding: 14px;
+}
+
+.projects-workspace--compact .project-restrictions {
+  margin-top: 0;
+  padding: 12px;
+}
+
+/* Settings compact */
+.settings-workspace.settings-workspace--compact {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100vh;
+  padding: 22px 26px 18px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.st-compact-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  flex-shrink: 0;
+}
+
+.st-compact-header h2 {
+  margin: 0 0 6px;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+}
+
+.st-compact-subtitle {
+  max-width: 560px;
+  margin: 0;
+  color: #84939d;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.st-compact-header-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 11px;
+  flex-shrink: 0;
+}
+
+.st-scan-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #8499a2;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+}
+
+.st-scan-state .indicator {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.st-pill {
+  padding: 5px 9px;
+  border: 1px solid #303c45;
+  border-radius: 999px;
+  color: #8ba0a9;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.st-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-workspace--compact .settings-grid,
+.settings-workspace--compact .settings-actions {
+  gap: 10px;
+}
+
+.settings-workspace--compact .settings-card {
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.settings-workspace--compact .settings-toggle {
+  gap: 8px;
+  line-height: 1.5;
+  font-size: 13px;
+}
+
+.settings-workspace--compact .settings-card p {
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.settings-workspace--compact .settings-router {
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.settings-workspace--compact .settings-router > header p {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.settings-workspace--compact .settings-router-list {
+  gap: 8px;
+}
+
+.settings-workspace--compact .settings-router-rule {
+  gap: 8px;
+  padding: 10px;
+}
+
+.settings-workspace--compact .settings-router-fields {
+  gap: 8px;
+}
+
+.settings-workspace--compact .settings-router-actions {
+  gap: 8px;
+}
+
+.settings-workspace--compact .settings-router-auto {
+  margin-bottom: 0.5rem;
+}
+
+/* Chat compact */
+.chat-workspace.chat-workspace--conversation.chat-workspace--compact {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.ch-compact-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  flex-shrink: 0;
+  padding: 14px 18px 10px;
+  border-bottom: 1px solid #1a232c;
+  background: rgba(10, 15, 20, 0.96);
+}
+
+.ch-compact-header h2 {
+  margin: 0 0 4px;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+}
+
+.ch-compact-subtitle {
+  max-width: 480px;
+  margin: 0;
+  color: #84939d;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ch-compact-header-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.ch-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.ch-scan-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #8499a2;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+}
+
+.ch-scan-state .indicator {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.ch-pill {
+  padding: 5px 9px;
+  border: 1px solid #303c45;
+  border-radius: 999px;
+  color: #8ba0a9;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ch-pill b {
+  color: #cbdce2;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.chat-workspace--compact .chat-conversation-panel {
+  flex: 1;
+  min-height: 0;
+}
+
+.chat-workspace--compact .chat-conversation-topbar {
+  min-height: 38px;
+  padding: 6px 14px;
+}
+
+.chat-workspace--compact .chat-clear-chat-btn,
+.chat-workspace--compact .chat-settings-menu > summary {
+  padding: 5px 11px;
+  font-size: 11px;
+}
+
+.chat-workspace--compact .chat-settings-body {
+  gap: 10px;
+  padding: 12px;
+}
+
+.chat-workspace--compact .chat-thread {
+  gap: 10px;
+  padding: 12px 16px;
+}
+
+.chat-workspace--compact .chat-bubble {
+  padding: 10px 13px;
+  border-radius: 14px;
+}
+
+.chat-workspace--compact .chat-bubble p {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.chat-workspace--compact .chat-bubble-time {
+  font-size: 10px;
+}
+
+.chat-workspace--compact .chat-empty-state {
+  min-height: 140px;
+}
+
+.chat-workspace--compact .chat-empty-state h3 {
+  font-size: 16px;
+}
+
+.chat-workspace--compact .chat-empty-state p {
+  font-size: 12px;
+}
+
+.chat-workspace--compact .chat-command-area .chat-router-suggestion {
+  margin: 8px 14px 0;
+}
+
+.chat-workspace--compact .chat-router-suggestion {
+  margin: 0 14px 10px;
+}
+
+.chat-workspace--compact .cmdbar {
+  margin: 10px 14px 12px;
+  padding: 14px 14px 10px;
+  min-height: 96px;
+  border-radius: 22px;
+}
+
+.chat-workspace--compact .cmdbar-hint {
+  margin: 0 0 6px 4px;
+  font-size: 11px;
+}
+
+.chat-workspace--compact .cmdbar-input {
+  font-size: 15px;
+}
+
+.chat-workspace--compact .cmdbar-row {
+  margin-top: 10px;
+  gap: 6px;
+}
+
+.chat-workspace--compact .cmdbar-icon {
+  width: 28px;
+  height: 28px;
+}

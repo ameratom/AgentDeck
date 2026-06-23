@@ -130,6 +130,7 @@ mod tests {
             source_agent_id: "agent:claude-code".to_owned(),
             title: "Review diff".to_owned(),
             task: "Review this changed file.".to_owned(),
+            required_capabilities: Vec::new(),
         };
         let suggestion = suggest_route(&rules, &request).expect("suggestion");
         assert_eq!(suggestion.target_provider_id, "lm-studio");
@@ -148,6 +149,7 @@ mod tests {
             source_agent_id: "agent:codex".to_owned(),
             title: "Research".to_owned(),
             task: "Find current docs.".to_owned(),
+            required_capabilities: Vec::new(),
         };
         assert!(suggest_route(&rules, &mismatch).is_none());
     }
@@ -165,6 +167,7 @@ mod tests {
             source_agent_id: "agent:agentdeck".to_owned(),
             title: "Chat prompt".to_owned(),
             task: "Hi Grok - send a message to codex for me.".to_owned(),
+            required_capabilities: Vec::new(),
         };
         assert!(suggest_route(&rules, &request).is_none());
     }
@@ -182,6 +185,7 @@ mod tests {
             source_agent_id: "agent:agentdeck".to_owned(),
             title: "Chat prompt".to_owned(),
             task: "Please write code for this handler.".to_owned(),
+            required_capabilities: Vec::new(),
         };
         let suggestion = suggest_route(&rules, &request).expect("suggestion");
         assert_eq!(suggestion.target_provider_id, "codex");
@@ -200,6 +204,7 @@ mod tests {
             source_agent_id: "agent:agentdeck".to_owned(),
             title: "Chat prompt".to_owned(),
             task: "encode the payload before sending".to_owned(),
+            required_capabilities: Vec::new(),
         };
         assert!(suggest_route(&rules, &request).is_none());
     }
@@ -217,6 +222,7 @@ mod tests {
             source_agent_id: "agent:agentdeck".to_owned(),
             title: "Chat prompt".to_owned(),
             task: "review the diff before merging".to_owned(),
+            required_capabilities: Vec::new(),
         };
         let suggestion = suggest_route(&rules, &request).expect("suggestion");
         assert_eq!(suggestion.target_provider_id, "lm-studio");
@@ -235,6 +241,7 @@ mod tests {
             source_agent_id: "agent:agentdeck".to_owned(),
             title: "Chat prompt".to_owned(),
             task: "please write code for the handler".to_owned(),
+            required_capabilities: Vec::new(),
         };
         let suggestion = suggest_route(&rules, &request).expect("suggestion");
         assert_eq!(suggestion.target_provider_id, "codex");
@@ -243,6 +250,7 @@ mod tests {
             source_agent_id: "agent:agentdeck".to_owned(),
             title: "Chat prompt".to_owned(),
             task: "rewrite codec settings".to_owned(),
+            required_capabilities: Vec::new(),
         };
         assert!(suggest_route(&rules, &negative).is_none());
     }
@@ -260,6 +268,7 @@ mod tests {
             source_agent_id: "agent:agentdeck".to_owned(),
             title: "Chat prompt".to_owned(),
             task: "scan this barcode for inventory".to_owned(),
+            required_capabilities: Vec::new(),
         };
         assert!(suggest_route(&rules, &request).is_none());
     }

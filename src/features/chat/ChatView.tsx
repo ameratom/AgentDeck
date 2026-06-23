@@ -527,7 +527,18 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
   }, [clearConfirmOpen, clearing]);
 
   return (
-    <section className="workspace chat-workspace chat-workspace--conversation">
+    <section className="workspace chat-workspace chat-workspace--conversation chat-workspace--compact">
+      <header className="ch-compact-header">
+        <div>
+          <p className="eyebrow">Phase 2 / Chat</p>
+          <h2>Local Chat</h2>
+          <p className="ch-compact-subtitle">
+            Send messages to a local or cloud provider. Conversation history
+            stays on this Mac.
+          </p>
+        </div>
+      </header>
+
       <section className="chat-conversation-panel">
         <header className="chat-conversation-topbar">
           <div className="chat-conversation-topbar-actions">

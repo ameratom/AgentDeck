@@ -10,8 +10,8 @@ use tauri::{AppHandle, Manager};
 
 use crate::models::{
     AppSettings, AuditEventRecord, AuditEventsPage, ChatMessage, ChatPreferences, HandoffRun,
-    LocalDeleteResult, LocalExportResult, ProjectConnectorSettings, ProjectWorkspace, RouterRule,
-    SkillExecutionRecord, WebhookEndpoint,
+    LocalDeleteResult, LocalExportResult, ProjectConnectorSettings, ProjectDocumentV2,
+    ProjectDocumentV3, ProjectWorkspace, RouterRule, SkillExecutionRecord, WebhookEndpoint,
 };
 
 const DEFAULT_REDACT_SENSITIVE_EXPORTS: bool = true;
@@ -156,7 +156,8 @@ pub fn load_handoff_run(connection: &Connection, run_id: &str) -> Result<Handoff
         .prepare(
             "SELECT id, project_id, thread_id, source_agent_id, source_agent_name, target_provider_id,
                     target_provider_name, target_model_id, title, task, context, status,
-                    output, error, approvals, audit_ref, created_at, updated_at
+                    output, error, approvals, audit_ref, created_at, updated_at,
+                    mission_id, parent_run_id, required_capabilities
              FROM handoff_runs
              WHERE id = ?1",
         )
@@ -226,6 +227,13 @@ pub fn load_handoff_run(connection: &Connection, run_id: &str) -> Result<Handoff
         updated_at: row
             .get(17)
             .map_err(|error| format!("failed to decode handoff run: {error}"))?,
+        mission_id: row.get(18).map_err(|error| format!("failed to decode mission: {error}"))?,
+        parent_run_id: row.get(19).map_err(|error| format!("failed to decode parent run: {error}"))?,
+        required_capabilities: row
+            .get::<_, String>(20)
+            .ok()
+            .and_then(|value| serde_json::from_str(&value).ok())
+            .unwrap_or_default(),
     })
 }
 
@@ -630,8 +638,11 @@ fn migrate_database(connection: &Connection) -> Result<(), String> {
             CREATE TABLE IF NOT EXISTS project_workspaces (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
                 path TEXT NOT NULL UNIQUE,
                 active INTEGER NOT NULL DEFAULT 0,
+                project_format_version INTEGER,
+                project_file_digest TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -815,6 +826,165 @@ fn migrate_database(connection: &Connection) -> Result<(), String> {
             )
             .map_err(|error| format!("failed to record schema migration: {error}"))?;
     }
+    if !migration_applied(connection, 13)? {
+        let columns = connection
+            .prepare("PRAGMA table_info(project_workspaces)")
+            .and_then(|mut statement| {
+                let rows = statement.query_map([], |row| row.get::<_, String>(1))?;
+                Ok(rows.filter_map(Result::ok).collect::<Vec<_>>())
+            })
+            .map_err(|error| format!("failed to inspect project schema: {error}"))?;
+        for (column, definition) in [
+            ("description", "TEXT NOT NULL DEFAULT ''"),
+            ("project_format_version", "INTEGER"),
+            ("project_file_digest", "TEXT"),
+        ] {
+            if !columns.iter().any(|name| name == column) {
+                connection
+                    .execute(
+                        &format!("ALTER TABLE project_workspaces ADD COLUMN {column} {definition}"),
+                        [],
+                    )
+                    .map_err(|error| format!("failed to add project column {column}: {error}"))?;
+            }
+        }
+        connection
+            .execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+                params![13_i64, Utc::now().to_rfc3339()],
+            )
+            .map_err(|error| format!("failed to record schema migration: {error}"))?;
+    }
+    if !migration_applied(connection, 14)? {
+        connection
+            .execute(
+                "CREATE TABLE IF NOT EXISTS missions (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT,
+                    title TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    summary TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )",
+                [],
+            )
+            .map_err(|error| format!("failed to create missions table: {error}"))?;
+        let columns = table_columns(connection, "handoff_runs")?;
+        for (column, definition) in [
+            ("mission_id", "TEXT"),
+            ("parent_run_id", "TEXT"),
+            ("required_capabilities", "TEXT NOT NULL DEFAULT '[]'"),
+        ] {
+            if !columns.iter().any(|name| name == column) {
+                connection
+                    .execute(
+                        &format!("ALTER TABLE handoff_runs ADD COLUMN {column} {definition}"),
+                        [],
+                    )
+                    .map_err(|error| format!("failed to add handoff column {column}: {error}"))?;
+            }
+        }
+        connection
+            .execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_missions_project_updated
+                    ON missions(project_id, updated_at DESC);
+                 CREATE INDEX IF NOT EXISTS idx_handoff_mission_created
+                    ON handoff_runs(mission_id, created_at);",
+            )
+            .map_err(|error| format!("failed to index missions: {error}"))?;
+        record_migration(connection, 14)?;
+    }
+    if !migration_applied(connection, 15)? {
+        connection
+            .execute(
+                "CREATE TABLE IF NOT EXISTS execution_profiles (
+                    provider_id TEXT NOT NULL,
+                    model_id TEXT NOT NULL DEFAULT '',
+                    capabilities_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY(provider_id, model_id)
+                )",
+                [],
+            )
+            .map_err(|error| format!("failed to create execution profiles: {error}"))?;
+        for (provider, capabilities) in [
+            ("lm-studio", r#"["access_network"]"#),
+            ("xai", r#"["access_network"]"#),
+            ("anthropic", r#"["access_network"]"#),
+            ("openai-compatible", r#"["access_network"]"#),
+            ("claude-code", r#"["read_files","write_files","run_shell","access_network","modify_git","call_mcp_tools"]"#),
+            ("codex", r#"["read_files","write_files","run_shell","access_network","modify_git","call_mcp_tools"]"#),
+        ] {
+            connection.execute(
+                "INSERT OR IGNORE INTO execution_profiles
+                    (provider_id, model_id, capabilities_json, updated_at)
+                 VALUES (?1, '', ?2, ?3)",
+                params![provider, capabilities, Utc::now().to_rfc3339()],
+            ).map_err(|error| format!("failed to seed execution profile {provider}: {error}"))?;
+        }
+        record_migration(connection, 15)?;
+    }
+    if !migration_applied(connection, 16)? {
+        let columns = table_columns(connection, "project_workspaces")?;
+        if !columns.iter().any(|name| name == "autonomy_restrictions") {
+            connection
+                .execute(
+                    "ALTER TABLE project_workspaces ADD COLUMN autonomy_restrictions TEXT NOT NULL DEFAULT '{\"askFirst\":[],\"deny\":[]}'",
+                    [],
+                )
+                .map_err(|error| format!("failed to add project restrictions: {error}"))?;
+        }
+        record_migration(connection, 16)?;
+    }
+    if !migration_applied(connection, 17)? {
+        connection
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS provider_usage_events (
+                    request_id TEXT PRIMARY KEY,
+                    provider_id TEXT NOT NULL,
+                    model_id TEXT NOT NULL,
+                    operation TEXT NOT NULL,
+                    input_tokens INTEGER NOT NULL,
+                    output_tokens INTEGER NOT NULL,
+                    measurement_kind TEXT NOT NULL,
+                    pricing_source TEXT,
+                    pricing_version TEXT,
+                    estimated_usd REAL,
+                    audit_ref TEXT,
+                    recorded_at TEXT NOT NULL
+                );
+                 CREATE INDEX IF NOT EXISTS idx_provider_usage_window
+                    ON provider_usage_events(provider_id, recorded_at DESC);
+                 CREATE TABLE IF NOT EXISTS provider_budgets (
+                    provider_id TEXT PRIMARY KEY,
+                    monthly_budget_usd REAL,
+                    updated_at TEXT NOT NULL
+                );",
+            )
+            .map_err(|error| format!("failed to create provider usage ledger: {error}"))?;
+        record_migration(connection, 17)?;
+    }
+    Ok(())
+}
+
+fn table_columns(connection: &Connection, table: &str) -> Result<Vec<String>, String> {
+    connection
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .and_then(|mut statement| {
+            let rows = statement.query_map([], |row| row.get::<_, String>(1))?;
+            Ok(rows.filter_map(Result::ok).collect())
+        })
+        .map_err(|error| format!("failed to inspect {table} schema: {error}"))
+}
+
+fn record_migration(connection: &Connection, version: i64) -> Result<(), String> {
+    connection
+        .execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+            params![version, Utc::now().to_rfc3339()],
+        )
+        .map_err(|error| format!("failed to record schema migration {version}: {error}"))?;
     Ok(())
 }
 
@@ -954,27 +1124,90 @@ pub fn replace_webhook_endpoints(
 pub fn load_project_workspaces(connection: &Connection) -> Result<Vec<ProjectWorkspace>, String> {
     let mut statement = connection
         .prepare(
-            "SELECT id, name, path, active, created_at, updated_at
+            "SELECT id, name, description, path, active, project_format_version,
+                    project_file_digest, created_at, updated_at, autonomy_restrictions
              FROM project_workspaces
              ORDER BY active DESC, updated_at DESC, name ASC",
         )
         .map_err(|error| format!("failed to prepare project query: {error}"))?;
     let rows = statement
         .query_map([], |row| {
-            let path: String = row.get(2)?;
+            let path: String = row.get(3)?;
+            let exists = Path::new(&path).is_dir();
+            let format_version = row.get::<_, Option<i64>>(5)?.map(|value| value as u32);
+            let stored_digest = row.get::<_, Option<String>>(6)?;
+            let project_file_state = project_file_state(
+                Path::new(&path),
+                exists,
+                format_version,
+                stored_digest.as_deref(),
+            );
             Ok(ProjectWorkspace {
                 id: row.get(0)?,
                 name: row.get(1)?,
-                exists: Path::new(&path).is_dir(),
+                description: row.get(2)?,
+                exists,
                 path,
-                active: row.get::<_, i64>(3)? != 0,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
+                active: row.get::<_, i64>(4)? != 0,
+                format_version,
+                project_file_state,
+                project_file_digest: stored_digest,
+                created_at: row.get(7)?,
+                updated_at: row.get(8)?,
+                autonomy_restrictions: serde_json::from_str(
+                    &row.get::<_, String>(9)?,
+                )
+                .unwrap_or_default(),
             })
         })
         .map_err(|error| format!("failed to query projects: {error}"))?;
     rows.collect::<Result<Vec<_>, _>>()
         .map_err(|error| format!("failed to decode projects: {error}"))
+}
+
+fn project_file_state(
+    project_path: &Path,
+    project_exists: bool,
+    format_version: Option<u32>,
+    stored_digest: Option<&str>,
+) -> String {
+    if !project_exists {
+        return "missing".to_owned();
+    }
+    let file_path = project_path.join(".agentdeck").join("project.json");
+    if !file_path.is_file() {
+        return if format_version.is_some() {
+            "missing".to_owned()
+        } else {
+            "legacy".to_owned()
+        };
+    }
+    let Ok(bytes) = fs::read(&file_path) else {
+        return "invalid".to_owned();
+    };
+    let valid = serde_json::from_slice::<ProjectDocumentV2>(&bytes)
+        .map(|document| document.kind == "agentdeck.project" && document.format_version == 2)
+        .unwrap_or(false)
+        || serde_json::from_slice::<ProjectDocumentV3>(&bytes)
+            .map(|document| {
+                crate::commands::projects::validate_project_document(&document).is_ok()
+            })
+            .unwrap_or(false);
+    if !valid {
+        return "invalid".to_owned();
+    }
+    let digest = format!("{:016x}", stable_hash_bytes(&bytes));
+    if stored_digest == Some(digest.as_str()) {
+        "synced".to_owned()
+    } else {
+        "changed".to_owned()
+    }
+}
+
+pub(crate) fn stable_hash_bytes(value: &[u8]) -> u64 {
+    value.iter().fold(0xcbf29ce484222325, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
+    })
 }
 
 pub fn load_active_project(connection: &Connection) -> Result<Option<ProjectWorkspace>, String> {
@@ -1349,7 +1582,8 @@ fn load_handoff_runs(connection: &Connection) -> Result<Vec<HandoffRun>, String>
         .prepare(
             "SELECT id, project_id, thread_id, source_agent_id, source_agent_name, target_provider_id,
                     target_provider_name, target_model_id, title, task, context, status,
-                    output, error, approvals, audit_ref, created_at, updated_at
+                    output, error, approvals, audit_ref, created_at, updated_at,
+                    mission_id, parent_run_id, required_capabilities
              FROM handoff_runs
              ORDER BY created_at ASC",
         )
@@ -1376,6 +1610,12 @@ fn load_handoff_runs(connection: &Connection) -> Result<Vec<HandoffRun>, String>
                 audit_ref: row.get(15)?,
                 created_at: row.get(16)?,
                 updated_at: row.get(17)?,
+                mission_id: row.get(18)?,
+                parent_run_id: row.get(19)?,
+                required_capabilities: serde_json::from_str(
+                    &row.get::<_, String>(20)?,
+                )
+                .unwrap_or_default(),
             })
         })
         .map_err(|error| format!("failed to load handoff export: {error}"))?;
@@ -1688,7 +1928,10 @@ mod storage_tests {
         assert!(updated.launch_at_login);
 
         let reloaded = load_app_settings(&path).expect("reload app settings");
-        assert_eq!(reloaded.menu_bar_service_mode, updated.menu_bar_service_mode);
+        assert_eq!(
+            reloaded.menu_bar_service_mode,
+            updated.menu_bar_service_mode
+        );
         assert_eq!(reloaded.start_hidden, updated.start_hidden);
         assert_eq!(
             reloaded.close_hides_to_menu_bar,
@@ -1887,6 +2130,34 @@ mod storage_tests {
         assert_eq!(projects.len(), 2);
         assert_eq!(projects[0].id, "project:two");
         assert!(projects[0].active);
+    }
+
+    #[test]
+    fn enhancement_migrations_leave_existing_runs_unassigned() {
+        let connection = Connection::open_in_memory().unwrap();
+        migrate_database(&connection).unwrap();
+        connection
+            .execute(
+                "INSERT INTO handoff_runs
+                    (id, project_id, thread_id, source_agent_id, source_agent_name,
+                     target_provider_id, target_provider_name, target_model_id,
+                     title, task, context, status, output, error, approvals,
+                     audit_ref, created_at, updated_at)
+                 VALUES
+                    ('run:legacy', NULL, 'handoff:legacy', 'agent:codex', 'Codex',
+                     'lm-studio', 'LM Studio', 'local', 'Legacy', 'Task', '',
+                     'completed', 'Done', NULL, '[]', NULL, '2026-01-01', '2026-01-01')",
+                [],
+            )
+            .unwrap();
+        let run = load_handoff_run(&connection, "run:legacy").unwrap();
+        assert_eq!(run.mission_id, None);
+        assert_eq!(run.parent_run_id, None);
+        assert!(run.required_capabilities.is_empty());
+        let profile_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM execution_profiles", [], |row| row.get(0))
+            .unwrap();
+        assert!(profile_count >= 5);
     }
 }
 

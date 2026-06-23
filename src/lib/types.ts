@@ -268,16 +268,45 @@ export interface ChatgptReviewHealth {
 export interface ProjectWorkspace {
   id: string;
   name: string;
+  description: string;
   path: string;
   exists: boolean;
   active: boolean;
+  formatVersion: number | null;
+  projectFileState: "legacy" | "synced" | "changed" | "invalid" | "missing";
+  projectFileDigest: string | null;
+  autonomyRestrictions: AutonomyRestrictions;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface AutonomyRestrictions {
+  askFirst: string[];
+  deny: string[];
 }
 
 export interface ProjectWorkspaceList {
   loadedAt: string;
   projects: ProjectWorkspace[];
+}
+
+export interface ProjectFileChange {
+  field: string;
+  currentValue: string;
+  fileValue: string;
+}
+
+export interface ProjectFilePreview {
+  projectId: string;
+  path: string;
+  valid: boolean;
+  detectedFormat: number | null;
+  currentDigest: string | null;
+  fileDigest: string | null;
+  changes: ProjectFileChange[];
+  warnings: string[];
+  canApply: boolean;
+  error: string | null;
 }
 
 export interface RouterRule {
