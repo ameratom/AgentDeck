@@ -252,16 +252,20 @@ export function SettingsView() {
       </header>
 
       <div className="st-body">
-      <section className="settings-grid">
-        <article className="settings-card">
-          <div className="settings-card-heading">
-            <div>
-              <p className="eyebrow">Presence</p>
-              <h3>Launch behavior</h3>
-            </div>
-            <span>{serviceModeLabel(settings.menuBarServiceMode)}</span>
+      <section className="st-toggle-table" aria-label="System settings">
+        <h3 className="st-toggle-group">
+          <span className="eyebrow">Presence</span>
+          Launch behavior · {serviceModeLabel(settings.menuBarServiceMode)}
+        </h3>
+        <div className="st-toggle-row">
+          <div className="st-toggle-copy">
+            <strong>Menu bar service</strong>
+            <span>
+              Default to menu bar service on launch. Turn off to run as a Dock
+              application instead.
+            </span>
           </div>
-          <label className="settings-toggle">
+          <label className="st-toggle-switch">
             <input
               checked={settings.menuBarServiceMode}
               disabled={saving || loading}
@@ -273,15 +277,21 @@ export function SettingsView() {
               }
               type="checkbox"
             />
-            <span>
-              Default to menu bar service on launch. Turn off to run as a Dock
-              application instead.
-            </span>
           </label>
-          <label className="settings-toggle">
+        </div>
+        <div className="st-toggle-row">
+          <div className="st-toggle-copy">
+            <strong>Start hidden</strong>
+            <span>Start hidden in the menu bar when service mode is enabled.</span>
+          </div>
+          <label className="st-toggle-switch">
             <input
               checked={settings.startHidden}
-              disabled={saving || loading || !presenceSubSettingsEnabled(settings.menuBarServiceMode)}
+              disabled={
+                saving ||
+                loading ||
+                !presenceSubSettingsEnabled(settings.menuBarServiceMode)
+              }
               onChange={(event) =>
                 void saveSettings({
                   ...settings,
@@ -290,12 +300,21 @@ export function SettingsView() {
               }
               type="checkbox"
             />
-            <span>Start hidden in the menu bar when service mode is enabled.</span>
           </label>
-          <label className="settings-toggle">
+        </div>
+        <div className="st-toggle-row">
+          <div className="st-toggle-copy">
+            <strong>Close hides to menu bar</strong>
+            <span>Close button hides to the menu bar instead of quitting.</span>
+          </div>
+          <label className="st-toggle-switch">
             <input
               checked={settings.closeHidesToMenuBar}
-              disabled={saving || loading || !presenceSubSettingsEnabled(settings.menuBarServiceMode)}
+              disabled={
+                saving ||
+                loading ||
+                !presenceSubSettingsEnabled(settings.menuBarServiceMode)
+              }
               onChange={(event) =>
                 void saveSettings({
                   ...settings,
@@ -304,9 +323,14 @@ export function SettingsView() {
               }
               type="checkbox"
             />
-            <span>Close button hides to the menu bar instead of quitting.</span>
           </label>
-          <label className="settings-toggle">
+        </div>
+        <div className="st-toggle-row">
+          <div className="st-toggle-copy">
+            <strong>Launch at login</strong>
+            <span>Launch AgentDeck at login.</span>
+          </div>
+          <label className="st-toggle-switch">
             <input
               checked={settings.launchAtLogin}
               disabled={saving || loading}
@@ -318,19 +342,19 @@ export function SettingsView() {
               }
               type="checkbox"
             />
-            <span>Launch AgentDeck at login.</span>
           </label>
-        </article>
+        </div>
 
-        <article className="settings-card">
-          <div className="settings-card-heading">
-            <div>
-              <p className="eyebrow">Privacy</p>
-              <h3>Redaction</h3>
-            </div>
-            <span>{settings.redactSensitiveExports ? "On" : "Off"}</span>
+        <h3 className="st-toggle-group">
+          <span className="eyebrow">Privacy</span>
+          Redaction · {settings.redactSensitiveExports ? "On" : "Off"}
+        </h3>
+        <div className="st-toggle-row">
+          <div className="st-toggle-copy">
+            <strong>Redact sensitive exports</strong>
+            <span>Redact sensitive fields in exports and crash logs.</span>
           </div>
-          <label className="settings-toggle">
+          <label className="st-toggle-switch">
             <input
               checked={settings.redactSensitiveExports}
               disabled={saving || loading}
@@ -342,19 +366,19 @@ export function SettingsView() {
               }
               type="checkbox"
             />
-            <span>Redact sensitive fields in exports and crash logs.</span>
           </label>
-        </article>
+        </div>
 
-        <article className="settings-card">
-          <div className="settings-card-heading">
-            <div>
-              <p className="eyebrow">Logging</p>
-              <h3>Crash-safe audit log</h3>
-            </div>
-            <span>{settings.crashSafeLogging ? "On" : "Off"}</span>
+        <h3 className="st-toggle-group">
+          <span className="eyebrow">Logging</span>
+          Crash-safe audit log · {settings.crashSafeLogging ? "On" : "Off"}
+        </h3>
+        <div className="st-toggle-row">
+          <div className="st-toggle-copy">
+            <strong>Crash-safe audit log</strong>
+            <span>Append audit events to a local JSONL log file.</span>
           </div>
-          <label className="settings-toggle">
+          <label className="st-toggle-switch">
             <input
               checked={settings.crashSafeLogging}
               disabled={saving || loading}
@@ -366,19 +390,22 @@ export function SettingsView() {
               }
               type="checkbox"
             />
-            <span>Append audit events to a local JSONL log file.</span>
           </label>
-        </article>
+        </div>
 
-        <article className="settings-card">
-          <div className="settings-card-heading">
-            <div>
-              <p className="eyebrow">Agents</p>
-              <h3>Grok subscription</h3>
-            </div>
-            <span>{settings.grokSubscriptionActive ? "On" : "Off"}</span>
+        <h3 className="st-toggle-group">
+          <span className="eyebrow">Agents</span>
+          Grok subscription · {settings.grokSubscriptionActive ? "On" : "Off"}
+        </h3>
+        <div className="st-toggle-row">
+          <div className="st-toggle-copy">
+            <strong>Grok subscription</strong>
+            <span>
+              Keep Grok available as a source agent from your active
+              subscription.
+            </span>
           </div>
-          <label className="settings-toggle">
+          <label className="st-toggle-switch">
             <input
               checked={settings.grokSubscriptionActive}
               disabled={saving || loading}
@@ -390,9 +417,8 @@ export function SettingsView() {
               }
               type="checkbox"
             />
-            <span>Keep Grok available as a source agent from your active subscription.</span>
           </label>
-        </article>
+        </div>
       </section>
 
       <section className="settings-router" aria-label="Chat and handoff router rules">
@@ -409,36 +435,46 @@ export function SettingsView() {
           </div>
         </header>
 
-        <label className="settings-toggle settings-router-auto">
-          <input
-            checked={settings.routerAutoApply}
-            disabled={saving || loading}
-            onChange={(event) =>
-              void saveSettings({
-                ...settings,
-                routerAutoApply: event.target.checked,
-              })
-            }
-            type="checkbox"
-          />
-          <span>
-            Automatically apply router suggestions in Chat and Handoffs when a
-            rule matches.
-          </span>
-        </label>
+        <div className="st-toggle-row st-router-auto-row">
+          <div className="st-toggle-copy">
+            <strong>Auto-apply router suggestions</strong>
+            <span>
+              Automatically apply router suggestions in Chat and Handoffs when a
+              rule matches.
+            </span>
+          </div>
+          <label className="st-toggle-switch">
+            <input
+              checked={settings.routerAutoApply}
+              disabled={saving || loading}
+              onChange={(event) =>
+                void saveSettings({
+                  ...settings,
+                  routerAutoApply: event.target.checked,
+                })
+              }
+              type="checkbox"
+            />
+          </label>
+        </div>
 
-        <div className="settings-router-list">
+        <div className="settings-router-list st-expandable-list">
           {routerRules.length ? (
             routerRules.map((rule, index) => (
-              <article className="settings-router-rule" key={rule.id}>
-                <div className="settings-router-rule-head">
-                  <div>
-                    <strong>{rule.name}</strong>
-                    <small>
-                      priority {index} · {rule.id}
-                    </small>
-                  </div>
-                  <label className="settings-toggle">
+              <details className="st-expandable-row" key={rule.id}>
+                <summary className="st-expandable-summary">
+                  <span className="st-expandable-title">{rule.name}</span>
+                  <span className="st-expandable-meta">
+                    P{index}
+                    {rule.keyword ? ` · ${rule.keyword}` : ""} →{" "}
+                    {rule.targetProviderId}
+                    {rule.targetModelId ? ` / ${rule.targetModelId}` : ""}
+                  </span>
+                  <label
+                    className="st-toggle-switch st-summary-toggle"
+                    onClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => event.stopPropagation()}
+                  >
                     <input
                       checked={rule.enabled}
                       disabled={savingRouter || loading}
@@ -451,10 +487,10 @@ export function SettingsView() {
                       }
                       type="checkbox"
                     />
-                    <span>Enabled</span>
                   </label>
-                </div>
+                </summary>
 
+                <div className="st-expandable-body">
                 <div className="settings-router-fields">
                   <label>
                     Rule name
@@ -580,7 +616,8 @@ export function SettingsView() {
                     Remove
                   </button>
                 </div>
-              </article>
+                </div>
+              </details>
             ))
           ) : (
             <p className="empty-state">
@@ -635,19 +672,21 @@ export function SettingsView() {
           </p>
         ) : null}
 
-        <div className="settings-router-list">
+        <div className="settings-router-list st-expandable-list">
           {webhookEndpoints.length ? (
             webhookEndpoints.map((endpoint) => (
-              <article className="settings-router-rule" key={endpoint.id}>
-                <div className="settings-router-rule-head">
-                  <div>
-                    <strong>{endpoint.name}</strong>
-                    <small>
-                      {endpoint.id}
-                      {endpoint.hasSecret ? " · signed" : " · unsigned"}
-                    </small>
-                  </div>
-                  <label className="settings-toggle">
+              <details className="st-expandable-row" key={endpoint.id}>
+                <summary className="st-expandable-summary">
+                  <span className="st-expandable-title">{endpoint.name}</span>
+                  <span className="st-expandable-meta">
+                    {endpoint.url || "No URL"}
+                    {endpoint.hasSecret ? " · signed" : " · unsigned"}
+                  </span>
+                  <label
+                    className="st-toggle-switch st-summary-toggle"
+                    onClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => event.stopPropagation()}
+                  >
                     <input
                       checked={endpoint.enabled}
                       disabled={savingWebhooks || loading}
@@ -660,10 +699,10 @@ export function SettingsView() {
                       }
                       type="checkbox"
                     />
-                    <span>Enabled</span>
                   </label>
-                </div>
+                </summary>
 
+                <div className="st-expandable-body">
                 <div className="settings-router-fields">
                   <label>
                     Endpoint name
@@ -775,7 +814,8 @@ export function SettingsView() {
                     Remove
                   </button>
                 </div>
-              </article>
+                </div>
+              </details>
             ))
           ) : (
             <p className="settings-note">
@@ -808,18 +848,15 @@ export function SettingsView() {
         </div>
       </section>
 
-      <section className="settings-actions" aria-label="Data controls">
-        <article className="settings-card danger-card">
-          <div className="settings-card-heading">
-            <div>
-              <p className="eyebrow">Backup</p>
-              <h3>Export local data</h3>
-            </div>
-            <span>JSON snapshot</span>
+      <section className="st-footer-two-up settings-actions" aria-label="Data controls">
+        <article className="st-footer-card">
+          <div className="st-footer-heading">
+            <p className="eyebrow">Backup</p>
+            <h3>Export local data</h3>
           </div>
           <p>
-            Write the current chats, handoffs, audits, plugin settings, and
-            app settings to a local export file.
+            Write chats, handoffs, audits, plugin settings, and app settings to
+            a local JSON snapshot.
           </p>
           <button
             disabled={busyAction !== null || loading}
@@ -830,13 +867,10 @@ export function SettingsView() {
           </button>
         </article>
 
-        <article className="settings-card danger-card">
-          <div className="settings-card-heading">
-            <div>
-              <p className="eyebrow">Danger zone</p>
-              <h3>Delete local data</h3>
-            </div>
-            <span>Irreversible</span>
+        <article className="st-footer-card st-footer-danger">
+          <div className="st-footer-heading">
+            <p className="eyebrow">Danger zone</p>
+            <h3>Delete local data</h3>
           </div>
           <p>
             Remove the database, WAL files, export snapshots, and crash logs

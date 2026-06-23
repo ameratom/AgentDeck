@@ -463,41 +463,52 @@ export function HandoffView({
     : "Select a target provider before loading models.";
 
   return (
-    <section className="workspace handoff-workspace">
-      <header>
+    <section className="workspace handoff-workspace handoffs-workspace--compact">
+      <header className="ho-compact-header">
         <div>
           <p className="eyebrow">Phase 6 / Handoffs</p>
           <h2>Manual Handoffs</h2>
-          <p>
+          <p className="ho-compact-subtitle">
             Build a preview, approve it explicitly, and dispatch the task to a
             chosen provider model. The run record and result stay local.
           </p>
-          <p className="workspace-context">
+          <p className="workspace-context ho-compact-context">
             {activeProject
               ? `Scoped to ${activeProject.name} at ${activeProject.path}`
               : "No active project. Handoffs will use global context."}
           </p>
         </div>
-        <button
-          className="refresh-button"
-          disabled={loading}
-          onClick={onRefreshScan}
-          type="button"
-        >
-          Refresh environment
-        </button>
+        <div className="ho-compact-header-meta">
+          <button
+            className="refresh-button"
+            disabled={loading}
+            onClick={onRefreshScan}
+            type="button"
+          >
+            Refresh environment
+          </button>
+          <div className="ho-summary" role="status">
+            <div className="ho-scan-state">
+              <span
+                aria-hidden="true"
+                className={
+                  dispatching || loading ? "pulse indicator" : "indicator"
+                }
+              />
+              <span>{status}</span>
+            </div>
+            <span className="ho-pill">
+              <b>{agents.length}</b> sources
+            </span>
+            <span className="ho-pill">
+              <b>{scopedRuns.length}</b> runs
+            </span>
+          </div>
+        </div>
       </header>
 
-      <div className="handoff-status" role="status">
-        <span className={dispatching || loading ? "pulse indicator" : "indicator"} />
-        <span>{status}</span>
-        <span className="handoff-source-count">
-          {agents.length} source agents
-        </span>
-        <span className="handoff-run-count">{scopedRuns.length} runs</span>
-      </div>
-
-      <section className="handoff-layout">
+      <div className="ho-body">
+      <section className="handoff-layout ho-two-pane">
         <article className="handoff-form">
           <div className="handoff-section-heading">
             <div>
@@ -507,8 +518,8 @@ export function HandoffView({
             {scan ? <span>{scan.scannedAt}</span> : null}
           </div>
 
-          <div className="handoff-grid">
-            <label>
+          <div className="handoff-grid ho-compact-grid">
+            <label className="ho-field">
               <span className="source-agent-label">
                 Source agent
                 {agents.length === 0 ? (
@@ -540,7 +551,7 @@ export function HandoffView({
               </select>
             </label>
 
-            <label>
+            <label className="ho-field">
               <span>Target provider</span>
               <select
                 disabled={providers.length === 0}
@@ -570,7 +581,7 @@ export function HandoffView({
               </select>
             </label>
 
-            <label>
+            <label className="ho-field">
               <span>Target model</span>
               <select
                 disabled={!selectedProvider || modelOptions.length === 0}
@@ -592,7 +603,7 @@ export function HandoffView({
               </select>
             </label>
 
-            <div className="handoff-actions">
+            <div className="handoff-actions ho-field ho-actions-row">
               <button
                 disabled={!selectedProvider || refreshingModels || previewBlocked}
                 onClick={() => {
@@ -735,11 +746,11 @@ export function HandoffView({
           <div className="handoff-run-list">
             {scopedRuns.length > 0 ? (
               scopedRuns.map((run, index) => (
-                <article
+                <details
                   className={
                     highlightedRunIndex === index
-                      ? "handoff-run-card highlighted"
-                      : "handoff-run-card"
+                      ? "handoff-run-card ho-run-record highlighted"
+                      : "handoff-run-card ho-run-record"
                   }
                   key={run.id}
                   ref={(element) => {
@@ -748,19 +759,23 @@ export function HandoffView({
                     }
                   }}
                 >
-                  <div className="handoff-run-top">
-                    <div>
+                  <summary className="ho-run-summary">
+                    <span
+                      aria-hidden="true"
+                      className={`ho-run-dot ${run.status}`}
+                    />
+                    <span className="ho-run-main">
                       <strong>{run.title}</strong>
-                      <span>{run.status}</span>
-                    </div>
+                      <span>
+                        {run.sourceAgentName} → {run.targetProviderName} /{" "}
+                        {run.targetModelId}
+                      </span>
+                    </span>
+                    <span className="ho-run-status">{run.status}</span>
                     <small>{run.updatedAt}</small>
-                  </div>
-                  <p>
-                    {run.sourceAgentName} to {run.targetProviderName} /{" "}
-                    {run.targetModelId}
-                  </p>
+                  </summary>
                   <pre>{recentOutput(run)}</pre>
-                </article>
+                </details>
               ))
             ) : (
               <div className="handoff-empty">
@@ -771,6 +786,7 @@ export function HandoffView({
           </div>
         </aside>
       </section>
+      </div>
 
       {approvalOpen && approvalSnapshot ? (
         <div className="handoff-modal-backdrop" role="presentation">
