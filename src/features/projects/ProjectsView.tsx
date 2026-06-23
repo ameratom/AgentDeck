@@ -373,10 +373,10 @@ export function ProjectsView() {
                       aria-hidden="true"
                       className={
                         project.active
-                          ? "pr-status-dot active"
+                          ? "compact-status-dot active"
                           : project.exists
-                            ? "pr-status-dot"
-                            : "pr-status-dot missing"
+                            ? "compact-status-dot"
+                            : "compact-status-dot missing"
                       }
                     />
                     <span className="pr-registry-copy">
@@ -570,65 +570,91 @@ export function ProjectsView() {
                   </div>
                 </section>
                 {preview?.projectId === selectedProject.id ? (
-                  <section
+                  <details
                     aria-label="Project file review"
-                    className="project-file-preview"
+                    className="st-expandable-row pr-file-review"
+                    open={
+                      Boolean(preview.error) ||
+                      !preview.valid ||
+                      preview.changes.length > 0
+                    }
                   >
-                    <div className="project-file-preview-heading">
-                      <div>
-                        <strong>
-                          Project Format v{preview.detectedFormat ?? "?"}
-                        </strong>
-                        <small>{preview.path}</small>
-                      </div>
+                    <summary className="st-expandable-summary pr-file-review-summary">
+                      <span
+                        aria-hidden="true"
+                        className={
+                          preview.error || !preview.valid
+                            ? "compact-status-dot missing"
+                            : preview.changes.length > 0
+                              ? "compact-status-dot pending"
+                              : "compact-status-dot active"
+                        }
+                      />
+                      <span className="st-expandable-title">
+                        Project Format v{preview.detectedFormat ?? "?"}
+                      </span>
+                      <span className="st-expandable-meta">
+                        {preview.changes.length
+                          ? `${preview.changes.length} change${preview.changes.length === 1 ? "" : "s"}`
+                          : preview.error
+                            ? "Review error"
+                            : "Synced"}
+                      </span>
                       <button
-                        className="secondary-button"
-                        onClick={() => setPreview(null)}
+                        className="secondary-button pr-file-review-close"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setPreview(null);
+                        }}
                         type="button"
                       >
                         Close
                       </button>
+                    </summary>
+                    <div className="st-expandable-body project-file-preview">
+                      <small className="pr-file-review-path">{preview.path}</small>
+                      {preview.error ? (
+                        <p className="project-file-error">{preview.error}</p>
+                      ) : null}
+                      {preview.warnings.map((warning) => (
+                        <p className="project-file-warning" key={warning}>
+                          {warning}
+                        </p>
+                      ))}
+                      {preview.valid && preview.changes.length === 0 ? (
+                        <p className="project-file-empty">
+                          The project file matches local configuration.
+                        </p>
+                      ) : null}
+                      {preview.changes.length ? (
+                        <div className="project-file-changes">
+                          {preview.changes.map((change) => (
+                            <div key={change.field}>
+                              <strong>{change.field}</strong>
+                              <span>{change.currentValue || "(empty)"}</span>
+                              <span>{change.fileValue || "(empty)"}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                      {preview.valid && preview.changes.length > 0 ? (
+                        <button
+                          disabled={
+                            busyAction !== null ||
+                            !preview.canApply ||
+                            !preview.fileDigest
+                          }
+                          onClick={() => void applyFormat(selectedProject)}
+                          type="button"
+                        >
+                          {busyAction === `apply:${selectedProject.id}`
+                            ? "Applying..."
+                            : "Apply reviewed changes"}
+                        </button>
+                      ) : null}
                     </div>
-                    {preview.error ? (
-                      <p className="project-file-error">{preview.error}</p>
-                    ) : null}
-                    {preview.warnings.map((warning) => (
-                      <p className="project-file-warning" key={warning}>
-                        {warning}
-                      </p>
-                    ))}
-                    {preview.valid && preview.changes.length === 0 ? (
-                      <p className="project-file-empty">
-                        The project file matches local configuration.
-                      </p>
-                    ) : null}
-                    {preview.changes.length ? (
-                      <div className="project-file-changes">
-                        {preview.changes.map((change) => (
-                          <div key={change.field}>
-                            <strong>{change.field}</strong>
-                            <span>{change.currentValue || "(empty)"}</span>
-                            <span>{change.fileValue || "(empty)"}</span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-                    {preview.valid && preview.changes.length > 0 ? (
-                      <button
-                        disabled={
-                          busyAction !== null ||
-                          !preview.canApply ||
-                          !preview.fileDigest
-                        }
-                        onClick={() => void applyFormat(selectedProject)}
-                        type="button"
-                      >
-                        {busyAction === `apply:${selectedProject.id}`
-                          ? "Applying..."
-                          : "Apply reviewed changes"}
-                      </button>
-                    ) : null}
-                  </section>
+                  </details>
                 ) : null}
               </article>
             ) : (

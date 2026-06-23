@@ -685,7 +685,7 @@ export function HandoffView({
               </div>
             ) : null}
 
-            <label className="handoff-wide">
+            <label className="ho-field ho-title-field">
               <span>Title</span>
               <input
                 onChange={(event) => setTitle(event.target.value)}
@@ -694,12 +694,12 @@ export function HandoffView({
               />
             </label>
 
-            <label className="handoff-wide">
+            <label className="ho-field ho-task-field">
               <span>Task</span>
               <textarea
                 onChange={(event) => setTask(event.target.value)}
                 placeholder="What should the target do?"
-                rows={4}
+                rows={3}
                 value={task}
               />
             </label>
@@ -715,7 +715,7 @@ export function HandoffView({
             </label>
           </div>
 
-          <p className="handoff-note">
+          <p className="handoff-note ho-approval-anchor">
             {previewBlocked
               ? providerCredentialNote
               : previewDispatchBlocked
@@ -762,7 +762,7 @@ export function HandoffView({
                   <summary className="ho-run-summary">
                     <span
                       aria-hidden="true"
-                      className={`ho-run-dot ${run.status}`}
+                      className={`compact-status-dot ${run.status}`}
                     />
                     <span className="ho-run-main">
                       <strong>{run.title}</strong>

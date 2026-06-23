@@ -5882,6 +5882,40 @@ table.ag-pm td.ag-pm-cell {
   flex-wrap: wrap;
   gap: 10px;
 }
+/* Shared compact groundwork (Settings, Projects, Handoffs, Chat) */
+.projects-workspace--compact,
+.settings-workspace--compact,
+.handoffs-workspace--compact,
+.chat-workspace--compact {
+  --compact-row-pad-y: 10px;
+  --compact-row-pad-x: 12px;
+  --compact-gap: 8px;
+  --compact-label-size: 10px;
+}
+
+.compact-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #5f7f8f;
+  flex-shrink: 0;
+}
+
+.compact-status-dot.active,
+.compact-status-dot.completed {
+  background: #4fd08b;
+}
+
+.compact-status-dot.missing,
+.compact-status-dot.failed {
+  background: #c46a5d;
+}
+
+.compact-status-dot.running,
+.compact-status-dot.pending {
+  background: #d4b35f;
+}
+
 /* Projects compact */
 .projects-workspace.projects-workspace--compact {
   display: flex;
@@ -6055,21 +6089,6 @@ table.ag-pm td.ag-pm-cell {
   border-color: #355f4d;
 }
 
-.pr-status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: #5f7f8f;
-}
-
-.pr-status-dot.active {
-  background: #4fd08b;
-}
-
-.pr-status-dot.missing {
-  background: #c46a5d;
-}
-
 .pr-registry-copy {
   display: flex;
   flex-direction: column;
@@ -6156,6 +6175,33 @@ table.ag-pm td.ag-pm-cell {
 .projects-workspace--compact .project-restrictions {
   margin-top: 0;
   padding: 12px;
+}
+
+.pr-file-review {
+  margin-top: 0;
+}
+
+.pr-file-review-summary {
+  grid-template-columns: 8px minmax(0, 1fr) auto auto;
+  gap: var(--compact-gap);
+}
+
+.pr-file-review-close {
+  flex-shrink: 0;
+}
+
+.pr-file-review-path {
+  display: block;
+  margin-bottom: 8px;
+  color: #62727b;
+  font-size: var(--compact-label-size);
+  word-break: break-all;
+}
+
+.projects-workspace--compact .pr-file-review .project-file-preview {
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 /* Settings compact */
@@ -6859,6 +6905,17 @@ table.ag-pm td.ag-pm-cell {
   grid-column: 1 / -1;
 }
 
+.handoffs-workspace--compact .ho-title-field,
+.handoffs-workspace--compact .ho-task-field {
+  min-width: 0;
+}
+
+.handoffs-workspace--compact .ho-approval-anchor {
+  margin-top: var(--compact-gap);
+  padding-top: var(--compact-gap);
+  border-top: 1px solid #1e2830;
+}
+
 .handoffs-workspace--compact .handoff-grid select,
 .handoffs-workspace--compact .handoff-grid input,
 .handoffs-workspace--compact .handoff-grid textarea {
@@ -6897,26 +6954,6 @@ table.ag-pm td.ag-pm-cell {
 
 .handoffs-workspace--compact .ho-run-summary::-webkit-details-marker {
   display: none;
-}
-
-.handoffs-workspace--compact .ho-run-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: #5f7f8f;
-}
-
-.handoffs-workspace--compact .ho-run-dot.completed {
-  background: #4fd08b;
-}
-
-.handoffs-workspace--compact .ho-run-dot.failed {
-  background: #c46a5d;
-}
-
-.handoffs-workspace--compact .ho-run-dot.running,
-.handoffs-workspace--compact .ho-run-dot.pending {
-  background: #d4b35f;
 }
 
 .handoffs-workspace--compact .ho-run-main {
