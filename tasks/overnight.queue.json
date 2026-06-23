@@ -1,45 +1,48 @@
 [
   {
-    "id": "task-012",
-    "title": "Add regression tests for compact Audit helpers and selected-event detail contract",
+    "id": "task-015",
+    "title": "Compact Providers view header and list shell to match Settings unified-row pattern",
     "scope": "ALLOW",
     "files_hint": [
-      "src/features/audit/auditModel.ts",
-      "src/features/audit/auditModel.test.ts"
+      "src/features/providers/ProvidersView.tsx",
+      "src/features/providers/components/ProviderList.tsx",
+      "src/styles/globals.css"
     ],
     "acceptance": [
       "pnpm verify passes",
-      "auditStatusDotClass and auditActionLabel have unit coverage"
+      "Providers uses compact workspace classes consistent with Projects and Audit",
+      "Provider list and detail panes remain usable without widening the layout"
     ],
-    "deferred_if": "requires new Tauri audit detail command"
+    "deferred_if": "requires provider schema or Tauri API changes"
   },
   {
-    "id": "task-013",
-    "title": "Add CmdBar dictation error formatting tests for speech recognition failures",
+    "id": "task-016",
+    "title": "Log patch apply failures in Hermes morning report with sanitized diff preview",
     "scope": "ALLOW",
     "files_hint": [
-      "src/features/chat/cmdbar/useCmdBarDictation.ts",
-      "src/features/chat/cmdbar/cmdbarDictation.test.ts"
+      "src-tauri/src/autonomy/overnight.rs",
+      "src-tauri/src/autonomy/composer_bridge.rs"
     ],
     "acceptance": [
       "pnpm verify passes",
-      "not-allowed and no-speech dictation errors map to user-facing strings"
+      "Blocked tasks include first hunk preview when git apply fails",
+      "sanitize_patch_for_apply has unit coverage for bare context lines"
     ],
-    "deferred_if": "requires browser speech APIs in CI"
+    "deferred_if": "requires changes to morning report file format"
   },
   {
-    "id": "task-014",
-    "title": "Extend ChatGPT public probe tests for HTTP 530 and 502 tunnel failure hints",
+    "id": "task-017",
+    "title": "Probe cloudflared connector status in ChatGPT review health when public MCP uses a custom hostname",
     "scope": "ALLOW",
     "files_hint": [
-      "src-tauri/src/chatgpt_review.rs",
-      "scripts/check-chatgpt-review-health.sh"
+      "scripts/check-chatgpt-review-health.sh",
+      "src-tauri/src/chatgpt_review.rs"
     ],
     "acceptance": [
       "pnpm verify passes",
-      "530 errors mention cloudflared connector recovery",
-      "502 errors mention launching AgentDeck locally"
+      "Health check warns when public tools/list fails with HTTP 530 and cloudflared has no connector",
+      "Hermes review detail references install-cloudflared-service.sh recovery path"
     ],
-    "deferred_if": "requires live Cloudflare or tunnel credentials"
+    "deferred_if": "requires cloudflared credentials in CI"
   }
 ]

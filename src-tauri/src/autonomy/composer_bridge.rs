@@ -466,33 +466,121 @@ fn strip_code_fence(text: &str) -> String {
     trimmed.to_owned()
 }
 
-pub fn apply_unified_patch(repo_root: &Path, patch_text: &str) -> Result<(), ComposerError> {
+pub fn sanitize_patch_for_apply(patch_text: &str) -> String {
+    let normalized = patch_text.replace("\r\n", "\n").replace('\r', "\n");
+    let extracted = extract_patch(&normalized)
+        .or_else(|_| {
+            if looks_like_unified_diff(&normalized) {
+                Ok(normalized.trim().to_owned())
+            } else {
+                Err(ComposerError::InvalidResponse("not a unified diff".to_owned()))
+            }
+        })
+        .unwrap_or_else(|_| normalized.trim().to_owned());
+
+    let mut lines: Vec<String> = Vec::new();
+    let mut in_hunk = false;
+
+    for line in extracted.lines() {
+        if line.starts_with("diff --git ")
+            || line.starts_with("--- ")
+            || line.starts_with("+++ ")
+            || line.starts_with("index ")
+            || line.starts_with("new file mode ")
+            || line.starts_with("deleted file mode ")
+            || line.starts_with("similarity index ")
+            || line.starts_with("rename ")
+        {
+            in_hunk = false;
+            lines.push(line.to_owned());
+            continue;
+        }
+
+        if line.starts_with("@@") {
+            in_hunk = true;
+            lines.push(line.to_owned());
+            continue;
+        }
+
+        if in_hunk {
+            if line.is_empty() {
+                lines.push(String::new());
+                continue;
+            }
+            let first = line.chars().next().unwrap_or(' ');
+            if matches!(first, ' ' | '+' | '-' | '\\') {
+                lines.push(line.to_owned());
+            } else {
+                lines.push(format!(" {line}"));
+            }
+            continue;
+        }
+
+        if line.starts_with("SUMMARY:")
+            || line.starts_with("SUGGESTED_TESTS:")
+            || line.starts_with("SUGGESTED_COMMANDS:")
+            || line.starts_with("PATCH:")
+            || line.trim().starts_with("```")
+        {
+            break;
+        }
+    }
+
+    let mut sanitized = lines.join("\n");
+    if !sanitized.ends_with('\n') {
+        sanitized.push('\n');
+    }
+    sanitized
+}
+
+fn run_git_apply(repo_root: &Path, patch_text: &str, extra_args: &[&str]) -> Result<(), String> {
+    let mut args = vec!["apply", "--whitespace=nowarn"];
+    args.extend_from_slice(extra_args);
+    args.push("-");
+
     let mut child = Command::new("git")
-        .args(["apply", "--whitespace=nowarn", "-"])
+        .args(&args)
         .current_dir(repo_root)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|error| ComposerError::PatchApplyFailed(format!("git apply spawn failed: {error}")))?;
+        .map_err(|error| format!("git apply spawn failed: {error}"))?;
 
     if let Some(mut stdin) = child.stdin.take() {
         stdin
             .write_all(patch_text.as_bytes())
-            .map_err(|error| ComposerError::PatchApplyFailed(format!("git apply stdin failed: {error}")))?;
+            .map_err(|error| format!("git apply stdin failed: {error}"))?;
     }
 
     let output = child
         .wait_with_output()
-        .map_err(|error| ComposerError::PatchApplyFailed(format!("git apply wait failed: {error}")))?;
+        .map_err(|error| format!("git apply wait failed: {error}"))?;
 
     if output.status.success() {
         return Ok(());
     }
 
-    Err(ComposerError::PatchApplyFailed(
-        String::from_utf8_lossy(&output.stderr).trim().to_string(),
-    ))
+    Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+}
+
+pub fn apply_unified_patch(repo_root: &Path, patch_text: &str) -> Result<(), ComposerError> {
+    let sanitized = sanitize_patch_for_apply(patch_text);
+    if !looks_like_unified_diff(&sanitized) {
+        return Err(ComposerError::PatchApplyFailed(
+            "sanitized composer patch does not look like a unified diff".to_owned(),
+        ));
+    }
+
+    match run_git_apply(repo_root, &sanitized, &[]) {
+        Ok(()) => Ok(()),
+        Err(strict_error) => match run_git_apply(repo_root, &sanitized, &["--3way"]) {
+            Ok(()) => Ok(()),
+            Err(three_way_error) => Err(ComposerError::PatchApplyFailed(format!(
+                "{strict_error}; --3way: {three_way_error}"
+            ))),
+        },
+    }
 }
 
 #[cfg(test)]
@@ -627,6 +715,33 @@ index 111..222 100644
         let response = parse_cursor_response(raw).expect("json envelope response");
         assert_eq!(response.summary, "Added test");
         assert!(response.patch_text.contains("--- a/file.rs"));
+    }
+
+    #[test]
+    fn sanitize_patch_for_apply_prefixes_bare_context_lines() {
+        let raw = r#"--- a/foo.rs
++++ b/foo.rs
+@@ -1,2 +1,2 @@
+ unchanged
+-old
++new
+"#;
+        let sanitized = sanitize_patch_for_apply(raw);
+        assert!(sanitized.lines().any(|line| line == " unchanged"));
+        assert!(looks_like_unified_diff(&sanitized));
+    }
+
+    #[test]
+    fn sanitize_patch_for_apply_strips_trailing_metadata() {
+        let raw = r#"--- a/foo.rs
++++ b/foo.rs
+@@ -1 +1 @@
+-old
++new
+SUMMARY: done"#;
+        let sanitized = sanitize_patch_for_apply(raw);
+        assert!(!sanitized.contains("SUMMARY:"));
+        assert!(sanitized.contains("+new"));
     }
 
     #[test]

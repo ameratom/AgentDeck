@@ -537,8 +537,15 @@ fn apply_composer_patch(
         return Ok(());
     }
 
-    apply_unified_patch(repo_root, &response.patch_text)
-        .map_err(|error| format!("patch apply failed: {error}"))?;
+    apply_unified_patch(repo_root, &response.patch_text).map_err(|error| {
+        let preview: String = response
+            .patch_text
+            .lines()
+            .take(6)
+            .collect::<Vec<_>>()
+            .join(" / ");
+        format!("patch apply failed: {error} (patch preview: {preview})")
+    })?;
     notes.push("Composer patch applied via git apply.".to_owned());
     Ok(())
 }
