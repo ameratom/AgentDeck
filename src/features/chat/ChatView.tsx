@@ -117,13 +117,13 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
   const composerPlaceholder = loading
     ? "Loading chat..."
     : previewBlocked
-      ? "Add provider credentials in Settings (gear menu)."
+      ? "Add provider credentials — open More or Providers."
       : !selectedProvider
-        ? "Select a provider in the gear menu."
+        ? "Select a provider in the top bar."
         : !providerHasDispatchableModels(selectedProvider)
-          ? "Load models from the gear menu."
+          ? "Load models from the top bar."
           : selectedModel === ""
-            ? "Choose a model in the gear menu."
+            ? "Choose a model in the top bar."
             : "Message Grok…";
   const composerHint = sending
     ? "Streaming response…"
@@ -134,6 +134,10 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
           status.startsWith("Chat setup failed")
         ? status
         : "";
+  const headerStatus =
+    sending || loading
+      ? composerHint || status || "Working…"
+      : composerHint || status || "Ready";
 
   const refreshProviderModels = useCallback(async (
     providerId: string,
@@ -537,10 +541,99 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
             stays on this Mac.
           </p>
         </div>
+        <div className="ch-compact-header-meta">
+          <div className="ch-summary" role="status">
+            <div className="ch-scan-state">
+              <span
+                aria-hidden="true"
+                className={
+                  loading || sending || refreshingModels
+                    ? "pulse indicator"
+                    : "indicator"
+                }
+              />
+              <span>{headerStatus}</span>
+            </div>
+            <span className="ch-pill">
+              {project?.name ?? "Global"}
+            </span>
+            <span className="ch-pill">
+              <b>{visibleMessages.length}</b> msgs
+            </span>
+          </div>
+        </div>
       </header>
 
+      <div className="ch-body">
       <section className="chat-conversation-panel">
         <header className="chat-conversation-topbar">
+          <div className="ch-topbar-controls">
+            <label className="chat-field chat-field--provider ch-topbar-field">
+              <span>Provider</span>
+              <select
+                disabled={loading || sending || providers.length === 0}
+                onChange={(event) => {
+                  const nextProviderId = event.target.value;
+                  userOverrodeProviderRef.current = true;
+                  setSelectedProviderId(nextProviderId);
+                  const nextProvider = providers.find(
+                    (provider) => provider.id === nextProviderId,
+                  );
+                  setSelectedModel((current) =>
+                    resolvePreferredModel(nextProvider?.models ?? [], current),
+                  );
+                }}
+                value={selectedProviderId}
+              >
+                {providers.map((provider) => (
+                  <option key={provider.id} value={provider.id}>
+                    {provider.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="chat-field chat-field--model ch-topbar-field">
+              <span>Model</span>
+              <select
+                disabled={
+                  loading ||
+                  sending ||
+                  !selectedProvider ||
+                  modelOptions.length === 0
+                }
+                onChange={(event) => {
+                  userOverrodeProviderRef.current = true;
+                  setSelectedModel(event.target.value);
+                }}
+                value={selectedModel}
+              >
+                {modelOptions.length > 0 ? (
+                  modelOptions.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.id}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">Load models</option>
+                )}
+              </select>
+            </label>
+
+            <button
+              className="ch-topbar-load-btn"
+              disabled={!selectedProvider || refreshingModels || sending}
+              onClick={() => {
+                if (selectedProvider) {
+                  void refreshProviderModels(selectedProvider.id);
+                }
+              }}
+              type="button"
+            >
+              {refreshingModels ? "Loading…" : "Load models"}
+            </button>
+          </div>
+
           <div className="chat-conversation-topbar-actions">
             <button
               className="chat-clear-chat-btn"
@@ -553,96 +646,30 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
               {clearing ? "Clearing…" : "Clear chat"}
             </button>
             <details className="chat-settings-menu">
-              <summary aria-label="Chat settings">Settings</summary>
-            <div className="chat-settings-body">
-              <label className="chat-field chat-field--provider">
-                <span>Provider</span>
-                <select
-                  disabled={loading || sending || providers.length === 0}
-                  onChange={(event) => {
-                    const nextProviderId = event.target.value;
-                    userOverrodeProviderRef.current = true;
-                    setSelectedProviderId(nextProviderId);
-                    const nextProvider = providers.find(
-                      (provider) => provider.id === nextProviderId,
-                    );
-                    setSelectedModel((current) =>
-                      resolvePreferredModel(nextProvider?.models ?? [], current),
-                    );
-                  }}
-                  value={selectedProviderId}
-                >
-                  {providers.map((provider) => (
-                    <option key={provider.id} value={provider.id}>
-                      {provider.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <summary aria-label="Chat settings">More</summary>
+              <div className="chat-settings-body">
+                {previewBlocked ? (
+                  <button
+                    className="inline-link-button chat-settings-providers-link"
+                    onClick={onOpenProviders}
+                    type="button"
+                  >
+                    Open Providers
+                  </button>
+                ) : null}
 
-              <label className="chat-field chat-field--model">
-                <span>Model</span>
-                <select
-                  disabled={
-                    loading ||
-                    sending ||
-                    !selectedProvider ||
-                    modelOptions.length === 0
-                  }
-                  onChange={(event) => {
-                    userOverrodeProviderRef.current = true;
-                    setSelectedModel(event.target.value);
-                  }}
-                  value={selectedModel}
-                >
-                  {modelOptions.length > 0 ? (
-                    modelOptions.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.id}
-                      </option>
-                    ))
-                  ) : (
-                    <option value="">Load models</option>
-                  )}
-                </select>
-              </label>
-
-              <button
-                className="chat-settings-load-btn"
-                disabled={!selectedProvider || refreshingModels || sending}
-                onClick={() => {
-                  if (selectedProvider) {
-                    void refreshProviderModels(selectedProvider.id);
-                  }
-                }}
-                type="button"
-              >
-                {refreshingModels ? "Loading…" : "Load models"}
-              </button>
-
-              {previewBlocked ? (
-                <button
-                  className="inline-link-button chat-settings-providers-link"
-                  onClick={onOpenProviders}
-                  type="button"
-                >
-                  Open Providers
-                </button>
-              ) : null}
-
-              {selectedProvider ? (
-                <span className="chat-settings-meta">
-                  {credentialLabel(selectedProvider.credentialStatus)}
-                  {selectedProvider.catalogSource !== "none"
-                    ? ` · ${selectedProvider.catalogSource}`
-                    : ""}
-                  {modelOptions.length === 0 && selectedProvider.health.detail
-                    ? ` · ${selectedProvider.health.detail}`
-                    : ""}
-                </span>
-              ) : null}
-
-            </div>
+                {selectedProvider ? (
+                  <span className="chat-settings-meta">
+                    {credentialLabel(selectedProvider.credentialStatus)}
+                    {selectedProvider.catalogSource !== "none"
+                      ? ` · ${selectedProvider.catalogSource}`
+                      : ""}
+                    {modelOptions.length === 0 && selectedProvider.health.detail
+                      ? ` · ${selectedProvider.health.detail}`
+                      : ""}
+                  </span>
+                ) : null}
+              </div>
             </details>
           </div>
         </header>
@@ -679,24 +706,22 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
 
         <div className="chat-command-area">
           {showRouterSuggestion && routeSuggestion ? (
-            <div className="chat-router-suggestion">
-              <div>
-                <p>
-                  <strong>Router: {routeSuggestion.ruleName}</strong>
-                  {displayAutoAppliedKey ===
-                  routerAutoApplyKey(
-                    routeSuggestionRequestKey,
-                    routeSuggestion,
-                  ) ? (
-                    <span className="router-auto-badge">Auto-applied</span>
-                  ) : null}
-                </p>
-                <p>
-                  Route to {routeSuggestion.targetProviderId}
+            <div className="chat-router-suggestion ch-router-bar">
+              <div className="ch-router-copy">
+                <strong>Router: {routeSuggestion.ruleName}</strong>
+                {displayAutoAppliedKey ===
+                routerAutoApplyKey(
+                  routeSuggestionRequestKey,
+                  routeSuggestion,
+                ) ? (
+                  <span className="router-auto-badge">Auto-applied</span>
+                ) : null}
+                <span>
+                  → {routeSuggestion.targetProviderId}
                   {routeSuggestion.targetModelId
                     ? ` / ${routeSuggestion.targetModelId}`
                     : ""}
-                </p>
+                </span>
               </div>
               <div className="router-suggestion-actions">
                 <button
@@ -748,6 +773,7 @@ export function ChatView({ project, onOpenProviders }: ChatViewProps) {
           />
         </div>
       </section>
+      </div>
 
       {clearConfirmOpen ? (
         <div
